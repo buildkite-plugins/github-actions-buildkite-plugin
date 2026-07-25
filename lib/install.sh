@@ -53,7 +53,7 @@ gha_verify_distribution() {
   local path
   for path in "${required[@]}"; do [[ -f "$dir/$path" && ! -L "$dir/$path" ]] || return 1; done
   expected=$'LICENSE\nbuildkite-gha\nruntimes\nruntimes/node20\nruntimes/node20/LICENSE\nruntimes/node20/bin\nruntimes/node20/bin/node\nruntimes/node24\nruntimes/node24/LICENSE\nruntimes/node24/bin\nruntimes/node24/bin/node'
-  actual="$(find "$dir" -mindepth 1 -printf '%P\n' | LC_ALL=C sort)" || return 1
+  actual="$(cd "$dir" && find . -print | sed '1d; s#^\./##' | LC_ALL=C sort)" || return 1
   [[ "$actual" == "$expected" ]] || return 1
   chmod 0755 "$dir" "$dir/runtimes" "$dir/runtimes/node20" "$dir/runtimes/node20/bin" "$dir/runtimes/node24" "$dir/runtimes/node24/bin"
   chmod 0644 "$dir/LICENSE" "$dir/runtimes/node20/LICENSE" "$dir/runtimes/node24/LICENSE"
@@ -90,10 +90,10 @@ install_buildkite_gha() (
   matches="$(awk '$2 == "buildkite-gha_Linux_x86_64.tar.gz" && length($1) == 64 && $1 ~ /^[0-9a-fA-F]+$/ { print tolower($1) }' "$checksums")"
   [[ "$(printf '%s\n' "$matches" | grep -c .)" -eq 1 ]] || { gha_error "checksums.txt must contain exactly one valid archive checksum"; return 1; }
   checksum="$(printf '%s' "$matches")"
-  printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --status || { gha_error "CLI archive checksum verification failed"; return 1; }
+  printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check >/dev/null 2>&1 || { gha_error "CLI archive checksum verification failed"; return 1; }
   gha_validate_archive "$archive" "$listing" || return 1
   staged="$(mktemp -d "${root}/.${tag}.XXXXXX")" || return 1
-  tar -xzf "$archive" -C "$staged" --no-same-owner --no-same-permissions || { rm -rf "$staged"; gha_error "failed to extract CLI archive"; return 1; }
+  tar -xzf "$archive" -C "$staged" || { rm -rf "$staged"; gha_error "failed to extract CLI archive"; return 1; }
   gha_verify_distribution "$staged" "$version" || { rm -rf "$staged"; gha_error "extracted CLI or bundled Node runtimes failed validation"; return 1; }
   mkdir -p "$(dirname "$destination")"
   if mv -T "$staged" "$destination" 2>/dev/null; then :; else

@@ -63,7 +63,7 @@ teardown() { rm -rf "$TMP"; }
   export TMPDIR="$TMP/work"
   mkdir -p "$TMPDIR"
   run "$REPO/hooks/command"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.1.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.1.0/checksums.txt' "$MOCK_LOG"
@@ -73,7 +73,7 @@ teardown() { rm -rf "$TMP"; }
 @test "accepts a leading v and rejects version injection" {
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.1.0
   run "$REPO/hooks/command"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
   rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION='1.0.0/../../bad'
   run "$REPO/hooks/command"
@@ -116,7 +116,7 @@ EOF
   printf '%s  buildkite-gha_Linux_x86_64.tar.gz\n' "$(sha256sum "$TMP/release.tar.gz" | awk '{print $1}')" > "$TMP/checksums.txt"
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"unexpected, missing, duplicate, or unsafe"* ]]
+  [[ "$output" == *"unexpected, missing, duplicate, or unsafe"* ]] || { echo "$output"; false; }
   [ ! -e "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.1.0/Linux_x86_64/evil" ]
 
   rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"
@@ -140,7 +140,7 @@ EOF
 @test "propagates importer failure and never runs importer after install failure" {
   export MOCK_IMPORTER_EXIT=37
   run "$REPO/hooks/command"
-  [ "$status" -eq 37 ]
+  [ "$status" -eq 37 ] || { echo "$output"; false; }
   rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"; : > "$MOCK_LOG"; printf 'broken\n' > "$TMP/checksums.txt"
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]

@@ -9,6 +9,7 @@ requirements:
   - awk
   - grep
   - find
+  - sed
   - sort
   - mktemp
 configuration:
