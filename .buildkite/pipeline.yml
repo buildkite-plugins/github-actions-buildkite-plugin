@@ -1,0 +1,10 @@
+steps:
+  - label: ":sparkles: Tests"
+    plugins:
+      - plugin-tester#v1.3.0: ~
+  - label: ":lint-roller: Plugin lint"
+    plugins:
+      - plugin-linter#v3.3.0:
+          id: github-actions
+  - label: ":shell: Shellcheck"
+    command: 'docker run --rm -v "$$PWD:/workdir" -w /workdir koalaman/shellcheck-alpine:v0.11.0 shellcheck hooks/* lib/*'
