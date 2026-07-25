@@ -65,7 +65,7 @@ gha_verify_distribution() {
 }
 
 install_buildkite_gha() (
-  local raw="$1" version tag root destination invalid work archive checksums listing checksum matches staged
+  local raw="$1" version tag root destination invalid work archive checksums listing checksum matches actual_checksum staged
   version="$(gha_version "$raw")" || return 1
   tag="v${version}"
   root="$(gha_cache_root)" || return 1
@@ -90,7 +90,8 @@ install_buildkite_gha() (
   matches="$(awk '$2 == "buildkite-gha_Linux_x86_64.tar.gz" && length($1) == 64 && $1 ~ /^[0-9a-fA-F]+$/ { print tolower($1) }' "$checksums")"
   [[ "$(printf '%s\n' "$matches" | grep -c .)" -eq 1 ]] || { gha_error "checksums.txt must contain exactly one valid archive checksum"; return 1; }
   checksum="$(printf '%s' "$matches")"
-  printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check >/dev/null 2>&1 || { gha_error "CLI archive checksum verification failed"; return 1; }
+  actual_checksum="$(sha256sum "$archive" | awk 'NR == 1 { print tolower($1) }')" || { gha_error "could not hash CLI archive"; return 1; }
+  [[ "$actual_checksum" == "$checksum" ]] || { gha_error "CLI archive checksum verification failed"; return 1; }
   gha_validate_archive "$archive" "$listing" || return 1
   staged="$(mktemp -d "${root}/.${tag}.XXXXXX")" || return 1
   tar -xzf "$archive" -C "$staged" || { rm -rf "$staged"; gha_error "failed to extract CLI archive"; return 1; }
