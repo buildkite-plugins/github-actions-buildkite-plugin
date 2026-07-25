@@ -77,7 +77,7 @@ install_buildkite_gha() (
   for command in curl tar sha256sum awk grep mktemp; do gha_require "$command" || return 1; done
   if [[ -e "$destination" || -L "$destination" ]]; then
     invalid="${destination}.invalid.$$"
-    if mv -T -- "$destination" "$invalid" 2>/dev/null; then
+    if mv -- "$destination" "$invalid" 2>/dev/null; then
       rm -rf -- "$invalid"
     fi
   fi
@@ -93,11 +93,11 @@ install_buildkite_gha() (
   actual_checksum="$(sha256sum "$archive" | awk 'NR == 1 { print tolower($1) }')" || { gha_error "could not hash CLI archive"; return 1; }
   [[ "$actual_checksum" == "$checksum" ]] || { gha_error "CLI archive checksum verification failed"; return 1; }
   gha_validate_archive "$archive" "$listing" || return 1
-  staged="$(mktemp -d "${root}/.${tag}.XXXXXX")" || return 1
+  mkdir -p "$(dirname "$destination")"
+  staged="$(mktemp -d "$(dirname "$destination")/.Linux_x86_64.XXXXXX")" || return 1
   tar -xzf "$archive" -C "$staged" || { rm -rf "$staged"; gha_error "failed to extract CLI archive"; return 1; }
   gha_verify_distribution "$staged" "$version" || { rm -rf "$staged"; gha_error "extracted CLI or bundled Node runtimes failed validation"; return 1; }
-  mkdir -p "$(dirname "$destination")"
-  if mv -T "$staged" "$destination" 2>/dev/null; then :; else
+  if ln -sn "${staged##*/}" "$destination" 2>/dev/null; then :; else
     rm -rf "$staged"
     gha_verify_distribution "$destination" "$version" || { gha_error "concurrent CLI installation did not produce a valid cache"; return 1; }
   fi

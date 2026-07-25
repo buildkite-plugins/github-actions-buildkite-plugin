@@ -137,6 +137,24 @@ EOF
   [ "$status" -eq 1 ]
 }
 
+@test "concurrent installs converge on one valid cache" {
+  "$REPO/hooks/command" >"$TMP/first.out" 2>&1 & first=$!
+  "$REPO/hooks/command" >"$TMP/second.out" 2>&1 & second=$!
+  wait "$first"
+  wait "$second"
+  destination="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.1.0/Linux_x86_64"
+  [ -L "$destination" ]
+  # shellcheck source=../lib/install.sh
+  source "$REPO/lib/install.sh"
+  if ! gha_verify_distribution "$destination" 0.1.0; then
+    ls -la "$(dirname "$destination")"
+    find -L "$destination" -print
+    cat "$TMP/first.out" "$TMP/second.out"
+    false
+  fi
+  [ "$(grep -c '^upload --runtime-queue hosted ' "$MOCK_LOG")" -eq 2 ]
+}
+
 @test "propagates importer failure and never runs importer after install failure" {
   export MOCK_IMPORTER_EXIT=37
   run "$REPO/hooks/command"
