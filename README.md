@@ -21,9 +21,9 @@ plugins:
 
 ## Requirements and security boundary
 
-Only Linux x86-64 (`x86_64`/`amd64`) agents are supported. Releases are fetched without a GitHub token from the hard-coded public `buildkite/buildkite-gha` repository, and their SHA-256 checksum and fixed archive layout are verified before use. The hosted security queue is selected by the plugin and cannot be configured.
+Only Linux x86-64 (`x86_64`/`amd64`) agents are supported. Releases are fetched without a GitHub token from the hard-coded public `buildkite/buildkite-gha` repository, and their SHA-256 checksum and fixed archive layout are verified before use. A verified installation is cached under the Buildkite agent data path when available. The hosted runtime queue is selected by the plugin and cannot be configured.
 
-The CLI translates and uploads the workflow; this plugin does not add control-plane or cache behavior and does not rewrite action inputs. Workflow discovery, GitHub trigger filtering, and protected capabilities are not yet provided. Specify the workflow file directly.
+The CLI translates and uploads the workflow; this plugin does not add a control plane or rewrite action inputs. GitHub Actions `on:` does not configure Buildkite triggers, and protected capabilities are not yet provided. Configure triggers on the Buildkite pipeline and specify the workflow file directly.
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for local tests and the test-only cache override.
 

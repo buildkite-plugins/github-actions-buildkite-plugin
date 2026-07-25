@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Path is resolved from this hook at runtime.
@@ -11,6 +12,10 @@ version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-${BUILDKITE_PLUGIN__VERSION:
 
 if [[ -z "$workflow" ]]; then
   echo "github-actions plugin: workflow is required" >&2
+  exit 1
+fi
+if [[ "$workflow" == -* || "$workflow" == *$'\n'* || "$workflow" == *$'\r'* ]]; then
+  echo "github-actions plugin: workflow must be a path, not an option or multiline value" >&2
   exit 1
 fi
 

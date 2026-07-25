@@ -60,11 +60,14 @@ make_release() {
 teardown() { rm -rf "$TMP"; }
 
 @test "installs and invokes importer with exact arguments" {
+  export TMPDIR="$TMP/work"
+  mkdir -p "$TMPDIR"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ]
   grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.1.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.1.0/checksums.txt' "$MOCK_LOG"
+  [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
 }
 
 @test "accepts a leading v and rejects version injection" {
@@ -83,6 +86,10 @@ teardown() { rm -rf "$TMP"; }
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
   [[ "$output" == *"workflow is required"* ]]
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW=--event-path
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"workflow must be a path"* ]]
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW=x
   cat > "$TMP/bin/uname" <<'EOF'
 #!/usr/bin/env bash
@@ -103,7 +110,7 @@ EOF
   done
 }
 
-@test "rejects archive traversal and unexpected content before extraction" {
+@test "rejects unexpected content and symlinks before extraction" {
   printf 'bad\n' > "$TMP/evil"
   tar -czf "$TMP/release.tar.gz" -C "$TMP/payload" buildkite-gha LICENSE runtimes/node20/bin/node runtimes/node20/LICENSE runtimes/node24/bin/node runtimes/node24/LICENSE -C "$TMP" evil
   printf '%s  buildkite-gha_Linux_x86_64.tar.gz\n' "$(sha256sum "$TMP/release.tar.gz" | awk '{print $1}')" > "$TMP/checksums.txt"
@@ -111,6 +118,14 @@ EOF
   [ "$status" -ne 0 ]
   [[ "$output" == *"unexpected, missing, duplicate, or unsafe"* ]]
   [ ! -e "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.1.0/Linux_x86_64/evil" ]
+
+  rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"
+  rm "$TMP/payload/buildkite-gha"
+  ln -s /etc/passwd "$TMP/payload/buildkite-gha"
+  make_release
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unexpected, missing, duplicate, or unsafe"* ]]
 }
 
 @test "reuses valid cache without downloading" {

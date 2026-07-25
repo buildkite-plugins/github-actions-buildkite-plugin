@@ -6,6 +6,12 @@ requirements:
   - curl
   - tar
   - sha256sum
+  - awk
+  - grep
+  - find
+  - sort
+  - mktemp
+  - flock
 configuration:
   properties:
     workflow:
@@ -14,7 +20,7 @@ configuration:
       description: Path to the GitHub Actions workflow to upload.
     version:
       type: string
-      default: 0.1.0
+      default: "0.1.0"
       description: Exact pre-1.0 buildkite-gha CLI version.
   required:
     - workflow
