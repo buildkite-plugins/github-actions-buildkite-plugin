@@ -65,7 +65,7 @@ gha_verify_distribution() {
 }
 
 install_buildkite_gha() (
-  local raw="$1" version tag root destination lock lock_fd work archive checksums listing checksum matches staged
+  local raw="$1" version tag root destination invalid work archive checksums listing checksum matches staged
   version="$(gha_version "$raw")" || return 1
   tag="v${version}"
   root="$(gha_cache_root)" || return 1
@@ -74,15 +74,13 @@ install_buildkite_gha() (
     printf '%s\n' "$destination"
     return
   fi
-  for command in curl tar sha256sum awk grep mktemp flock; do gha_require "$command" || return 1; done
-  lock="${root}/.${tag}-Linux_x86_64.lock"
-  exec {lock_fd}>"$lock" || return 1
-  flock "$lock_fd" || return 1
-  if [[ -x "$destination/buildkite-gha" ]] && gha_verify_distribution "$destination" "$version"; then
-    printf '%s\n' "$destination"
-    return
+  for command in curl tar sha256sum awk grep mktemp; do gha_require "$command" || return 1; done
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    invalid="${destination}.invalid.$$"
+    if mv -T -- "$destination" "$invalid" 2>/dev/null; then
+      rm -rf -- "$invalid"
+    fi
   fi
-  rm -rf -- "$destination"
   work="$(mktemp -d "${TMPDIR:-/tmp}/github-actions-buildkite-plugin.XXXXXX")" || return 1
   archive="$work/buildkite-gha_Linux_x86_64.tar.gz"; checksums="$work/checksums.txt"; listing="$work/listing"
   trap 'rm -rf "$work"' EXIT

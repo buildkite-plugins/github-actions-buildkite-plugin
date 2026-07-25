@@ -111,8 +111,8 @@ EOF
 }
 
 @test "rejects unexpected content and symlinks before extraction" {
-  printf 'bad\n' > "$TMP/evil"
-  tar -czf "$TMP/release.tar.gz" -C "$TMP/payload" buildkite-gha LICENSE runtimes/node20/bin/node runtimes/node20/LICENSE runtimes/node24/bin/node runtimes/node24/LICENSE -C "$TMP" evil
+  printf 'bad\n' > "$TMP/payload/evil"
+  tar -czf "$TMP/release.tar.gz" -C "$TMP/payload" buildkite-gha LICENSE runtimes/node20/bin/node runtimes/node20/LICENSE runtimes/node24/bin/node runtimes/node24/LICENSE evil
   printf '%s  buildkite-gha_Linux_x86_64.tar.gz\n' "$(sha256sum "$TMP/release.tar.gz" | awk '{print $1}')" > "$TMP/checksums.txt"
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
