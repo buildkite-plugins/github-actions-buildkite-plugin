@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Path is resolved from this hook at runtime.
+# shellcheck disable=SC1091
+. "${PLUGIN_ROOT}/lib/install.sh"
+
+workflow="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW:-${BUILDKITE_PLUGIN__WORKFLOW:-}}"
+version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-${BUILDKITE_PLUGIN__VERSION:-0.1.0}}"
+
+if [[ -z "$workflow" ]]; then
+  echo "github-actions plugin: workflow is required" >&2
+  exit 1
+fi
+
+case "$(uname -s)" in
+  Linux) ;;
+  *) echo "github-actions plugin: unsupported operating system '$(uname -s)'; only Linux x86-64 is supported" >&2; exit 1 ;;
+esac
+case "$(uname -m)" in
+  x86_64|amd64) ;;
+  *) echo "github-actions plugin: unsupported architecture '$(uname -m)'; only Linux x86-64 is supported" >&2; exit 1 ;;
+esac
+
+distribution="$(install_buildkite_gha "$version")"
+exec "${distribution}/buildkite-gha" upload --runtime-queue hosted "$workflow"
