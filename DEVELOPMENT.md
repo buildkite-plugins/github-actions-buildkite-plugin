@@ -7,7 +7,8 @@ Run `bats tests`, `shellcheck hooks/* lib/*`, and the Buildkite plugin linter be
 ## Release
 
 Plugin releases are Git tags; they contain no generated assets. Before tagging,
-verify that the default `buildkite-gha` version has a public GitHub release and
-exercise this branch's installer against that real archive. After the Buildkite
-build for `main` passes, create and push the matching `v0.x.y` tag. The
-Buildkite pipeline is configured to test tag builds as well.
+verify that the public `buildkite/buildkite-gha` repository has a GitHub release
+for the default version and exercise this branch's installer against that real
+archive. After the Buildkite build for `main` passes, create and push the
+matching `v0.x.y` tag. The Buildkite pipeline is configured to test tag builds
+as well.
