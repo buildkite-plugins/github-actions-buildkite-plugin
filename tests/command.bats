@@ -7,7 +7,7 @@ setup() {
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW=".github/workflows/ci.yml"
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION="0.1.0"
   export MOCK_LOG="$TMP/mock.log"
-  mkdir -p "$TMP/bin" "$TMP/payload"
+  mkdir -p "$TMP/bin" "$TMP/payload/mise/bin"
   : > "$MOCK_LOG"
   printf 'license\n' > "$TMP/payload/LICENSE"
   cat > "$TMP/payload/buildkite-gha" <<'EOF'
@@ -16,12 +16,13 @@ if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.1.0'; exit; fi
 printf '%s\n' "$*" >> "${MOCK_LOG:?}"
 exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
-  cat > "$TMP/bin/mise" <<'EOF'
+  cat > "$TMP/payload/mise/bin/mise" <<'EOF'
 #!/usr/bin/env bash
 echo '2026.5.12 linux-x64 (test)'
 EOF
-  chmod +x "$TMP/payload/buildkite-gha" "$TMP/bin/mise"
+  chmod +x "$TMP/payload/buildkite-gha" "$TMP/payload/mise/bin/mise"
   make_release
+  tar -czf "$TMP/mise.tar.gz" -C "$TMP/payload" mise
   cat > "$TMP/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 set -eu
@@ -35,13 +36,29 @@ while [[ $# -gt 0 ]]; do
 done
 echo "$url" >> "${MOCK_LOG:?}"
 case "$url" in
+  */mise-v2026.5.12-linux-x64.tar.gz) cp "${MOCK_MISE_ARCHIVE:?}" "$out" ;;
   */buildkite-gha_Linux_x86_64.tar.gz) cp "${MOCK_ARCHIVE:?}" "$out" ;;
   */checksums.txt) cp "${MOCK_CHECKSUMS:?}" "$out" ;;
   *) exit 2 ;;
 esac
 EOF
   chmod +x "$TMP/bin/curl"
-  export MOCK_ARCHIVE="$TMP/release.tar.gz" MOCK_CHECKSUMS="$TMP/checksums.txt"
+  cat > "$TMP/bin/sha256sum" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  */mise-v2026.5.12-linux-x64.tar.gz)
+    if [[ "${MOCK_BAD_MISE_CHECKSUM:-}" == 1 ]]; then
+      printf '%064d  %s\n' 0 "$1"
+    else
+      printf 'bd0930c0b619f51ddb60e32e5cce18a5533567b2f1ba9fc4875b9f39a2bb3ed8  %s\n' "$1"
+    fi
+    ;;
+  */mise/bin/mise) printf 'a238972a3162d710b85b28c324372e96ca4e4b486c81fe78695000d9fbc77c48  %s\n' "$1" ;;
+  *) exec /usr/bin/sha256sum "$@" ;;
+esac
+EOF
+  chmod +x "$TMP/bin/curl" "$TMP/bin/sha256sum"
+  export MOCK_ARCHIVE="$TMP/release.tar.gz" MOCK_CHECKSUMS="$TMP/checksums.txt" MOCK_MISE_ARCHIVE="$TMP/mise.tar.gz"
   export PATH="$TMP/bin:$PATH"
 }
 
@@ -58,6 +75,7 @@ teardown() { rm -rf "$TMP"; }
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+  grep -Fx 'https://github.com/jdx/mise/releases/download/v2026.5.12/mise-v2026.5.12-linux-x64.tar.gz' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.1.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.1.0/checksums.txt' "$MOCK_LOG"
   [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
@@ -94,24 +112,27 @@ EOF
   [[ "$output" == *"only Linux x86-64"* ]]
 }
 
-@test "requires mise before installing the CLI" {
-  rm "$TMP/bin/mise"
-  export PATH="$TMP/bin:/usr/bin:/bin"
+@test "rejects a mise archive checksum mismatch before installing the CLI" {
+  export MOCK_BAD_MISE_CHECKSUM=1
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"required command 'mise' was not found"* ]]
-  ! grep -q '^https://' "$MOCK_LOG"
+  [[ "$output" == *"mise archive checksum verification failed"* ]]
+  run grep -q '/buildkite-gha/releases/' "$MOCK_LOG"
+  [ "$status" -eq 1 ]
 }
 
-@test "requires the pinned mise version before installing the CLI" {
-  cat > "$TMP/bin/mise" <<'EOF'
+@test "rejects an unexpected mise version before installing the CLI" {
+  cat > "$TMP/payload/mise/bin/mise" <<'EOF'
 #!/usr/bin/env bash
 echo '2026.5.13 linux-x64 (test)'
 EOF
+  chmod +x "$TMP/payload/mise/bin/mise"
+  tar -czf "$TMP/mise.tar.gz" -C "$TMP/payload" mise
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"mise 2026.5.12 is required, found '2026.5.13'"* ]]
-  ! grep -q '^https://' "$MOCK_LOG"
+  [[ "$output" == *"extracted mise executable failed validation"* ]]
+  run grep -q '/buildkite-gha/releases/' "$MOCK_LOG"
+  [ "$status" -eq 1 ]
 }
 
 @test "rejects missing malformed duplicate and mismatched checksums without running importer" {
@@ -150,13 +171,40 @@ EOF
   [ "$status" -eq 1 ]
 }
 
+@test "uses an attached hosted cache volume" {
+  unset BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT
+  export BUILDKITE_COMPUTE_TYPE=hosted
+  export BUILDKITE_AGENT_DATA_PATH="$TMP/agent"
+  export MISE_HOSTED_CACHE_VOLUME_ROOT="$TMP/hosted-cache"
+  mkdir -p "$MISE_HOSTED_CACHE_VOLUME_ROOT"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ -x "$MISE_HOSTED_CACHE_VOLUME_ROOT/github-actions-buildkite-plugin/mise/v2026.5.12/Linux_x86_64/mise/bin/mise" ]
+  [ -x "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin/v0.1.0/Linux_x86_64/buildkite-gha" ]
+}
+
+@test "replaces a mise cache containing unverified siblings" {
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  mise_dir="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/mise/v2026.5.12/Linux_x86_64/mise/bin"
+  printf '#!/bin/sh\nexit 99\n' > "$mise_dir/curl"
+  chmod +x "$mise_dir/curl"
+  : > "$MOCK_LOG"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx 'https://github.com/jdx/mise/releases/download/v2026.5.12/mise-v2026.5.12-linux-x64.tar.gz' "$MOCK_LOG"
+  [ ! -e "$mise_dir/curl" ]
+}
+
 @test "concurrent installs converge on one valid cache" {
   "$REPO/hooks/command" >"$TMP/first.out" 2>&1 & first=$!
   "$REPO/hooks/command" >"$TMP/second.out" 2>&1 & second=$!
   wait "$first"
   wait "$second"
   destination="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.1.0/Linux_x86_64"
+  mise_destination="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/mise/v2026.5.12/Linux_x86_64"
   [ -L "$destination" ]
+  [ -L "$mise_destination" ]
   # shellcheck source=../lib/install.sh
   source "$REPO/lib/install.sh"
   if ! gha_verify_distribution "$destination" 0.1.0; then

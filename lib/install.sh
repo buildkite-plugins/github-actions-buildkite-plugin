@@ -37,6 +37,75 @@ gha_cache_root() {
   fi
 }
 
+gha_mise_cache_root() {
+  local hosted_root root
+  if [[ -n "${BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT:-}" ]]; then
+    root="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"
+  elif [[ "${BUILDKITE_COMPUTE_TYPE:-self-hosted}" == hosted ]] &&
+    hosted_root="${MISE_HOSTED_CACHE_VOLUME_ROOT:-/cache/bkcache}" &&
+    [[ -d "$hosted_root" && -w "$hosted_root" ]]; then
+    root="${hosted_root}/github-actions-buildkite-plugin"
+  else
+    gha_cache_root
+    return
+  fi
+  if ! mkdir -p "$root" 2>/dev/null || [[ ! -w "$root" ]]; then
+    gha_error "mise cache '$root' is unavailable"
+    return 1
+  fi
+  printf '%s\n' "$root"
+}
+
+gha_verify_mise() {
+  local dir="$1" actual expected output path
+  path="$dir/mise/bin/mise"
+  [[ -d "$dir/mise" && ! -L "$dir/mise" ]] || return 1
+  [[ -d "$dir/mise/bin" && ! -L "$dir/mise/bin" ]] || return 1
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+  expected=$'mise\nmise/bin\nmise/bin/mise'
+  actual="$(cd "$dir" && find . -print | sed '1d; s#^\./##' | LC_ALL=C sort)" || return 1
+  [[ "$actual" == "$expected" ]] || return 1
+  actual="$(sha256sum "$path" | awk 'NR == 1 { print tolower($1) }')" || return 1
+  [[ "$actual" == "a238972a3162d710b85b28c324372e96ca4e4b486c81fe78695000d9fbc77c48" ]] || return 1
+  chmod 0755 "$dir/mise" "$dir/mise/bin" "$path"
+  output="$("$path" --version 2>/dev/null)" || return 1
+  [[ "${output%% *}" == "2026.5.12" ]]
+}
+
+install_mise() (
+  local root destination invalid work archive actual_checksum staged
+  for command in curl tar sha256sum awk find sed sort mktemp; do gha_require "$command" || return 1; done
+  root="$(gha_mise_cache_root)" || return 1
+  destination="${root}/mise/v2026.5.12/Linux_x86_64"
+  if gha_verify_mise "$destination"; then
+    printf '%s\n' "$destination/mise/bin/mise"
+    return
+  fi
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    invalid="${destination}.invalid.$$"
+    if mv -- "$destination" "$invalid" 2>/dev/null; then
+      rm -rf -- "$invalid"
+    fi
+  fi
+  work="$(mktemp -d "${TMPDIR:-/tmp}/github-actions-buildkite-plugin-mise.XXXXXX")" || return 1
+  archive="$work/mise-v2026.5.12-linux-x64.tar.gz"
+  trap 'rm -rf "$work"' EXIT
+  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    "https://github.com/jdx/mise/releases/download/v2026.5.12/mise-v2026.5.12-linux-x64.tar.gz" \
+    -o "$archive" || { gha_error "failed to download mise v2026.5.12"; return 1; }
+  actual_checksum="$(sha256sum "$archive" | awk 'NR == 1 { print tolower($1) }')" || { gha_error "could not hash mise archive"; return 1; }
+  [[ "$actual_checksum" == "bd0930c0b619f51ddb60e32e5cce18a5533567b2f1ba9fc4875b9f39a2bb3ed8" ]] || { gha_error "mise archive checksum verification failed"; return 1; }
+  mkdir -p "$(dirname "$destination")"
+  staged="$(mktemp -d "$(dirname "$destination")/.Linux_x86_64.XXXXXX")" || return 1
+  tar -xzf "$archive" -C "$staged" mise/bin/mise || { rm -rf "$staged"; gha_error "failed to extract mise archive"; return 1; }
+  gha_verify_mise "$staged" || { rm -rf "$staged"; gha_error "extracted mise executable failed validation"; return 1; }
+  if ln -sn "${staged##*/}" "$destination" 2>/dev/null; then :; else
+    rm -rf "$staged"
+    gha_verify_mise "$destination" || { gha_error "concurrent mise installation did not produce a valid cache"; return 1; }
+  fi
+  printf '%s\n' "$destination/mise/bin/mise"
+)
+
 gha_validate_archive() {
   local archive="$1" listing="$2"
   LC_ALL=C tar -tvzf "$archive" > "$listing" || { gha_error "release archive is not a valid gzip tar archive"; return 1; }
