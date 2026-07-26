@@ -28,6 +28,14 @@ case "$(uname -m)" in
   *) echo "github-actions plugin: unsupported architecture '$(uname -m)'; only Linux x86-64 is supported" >&2; exit 1 ;;
 esac
 gha_require mise
+mise_version="$(mise --version 2>/dev/null)" || {
+  echo "github-actions plugin: failed to read mise version; 2026.5.12 is required" >&2
+  exit 1
+}
+if [[ "${mise_version%% *}" != "2026.5.12" ]]; then
+  echo "github-actions plugin: mise 2026.5.12 is required, found '${mise_version%% *}'" >&2
+  exit 1
+fi
 
 distribution="$(install_buildkite_gha "$version")"
 exec "${distribution}/buildkite-gha" upload --runtime-queue hosted "$workflow"

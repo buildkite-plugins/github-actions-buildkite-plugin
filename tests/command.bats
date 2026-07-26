@@ -18,7 +18,7 @@ exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
   cat > "$TMP/bin/mise" <<'EOF'
 #!/usr/bin/env bash
-exit 0
+echo '2026.5.12 linux-x64 (test)'
 EOF
   chmod +x "$TMP/payload/buildkite-gha" "$TMP/bin/mise"
   make_release
@@ -100,6 +100,17 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
   [[ "$output" == *"required command 'mise' was not found"* ]]
+  ! grep -q '^https://' "$MOCK_LOG"
+}
+
+@test "requires the pinned mise version before installing the CLI" {
+  cat > "$TMP/bin/mise" <<'EOF'
+#!/usr/bin/env bash
+echo '2026.5.13 linux-x64 (test)'
+EOF
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"mise 2026.5.12 is required, found '2026.5.13'"* ]]
   ! grep -q '^https://' "$MOCK_LOG"
 }
 
