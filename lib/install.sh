@@ -41,7 +41,7 @@ gha_validate_archive() {
   local archive="$1" listing="$2"
   LC_ALL=C tar -tvzf "$archive" > "$listing" || { gha_error "release archive is not a valid gzip tar archive"; return 1; }
   awk '
-    BEGIN { ok["buildkite-gha"]="-"; ok["LICENSE"]="-"; ok["runtimes"]="d"; ok["runtimes/node20"]="d"; ok["runtimes/node20/bin"]="d"; ok["runtimes/node20/bin/node"]="-"; ok["runtimes/node20/LICENSE"]="-"; ok["runtimes/node24"]="d"; ok["runtimes/node24/bin"]="d"; ok["runtimes/node24/bin/node"]="-"; ok["runtimes/node24/LICENSE"]="-" }
+    BEGIN { ok["buildkite-gha"]="-"; ok["LICENSE"]="-" }
     { name=$NF; sub(/^\.\//, "", name); sub(/\/$/, "", name); type=substr($1,1,1); if (!(name in ok) || type != ok[name] || seen[name]++) exit 1 }
     END { for (name in ok) if (!seen[name] && ok[name] == "-") exit 1 }
   ' "$listing" || { gha_error "release archive contains an unexpected, missing, duplicate, or unsafe entry"; return 1; }
@@ -49,19 +49,16 @@ gha_validate_archive() {
 
 gha_verify_distribution() {
   local dir="$1" version="$2" output actual expected
-  local required=(LICENSE buildkite-gha runtimes/node20/LICENSE runtimes/node20/bin/node runtimes/node24/LICENSE runtimes/node24/bin/node)
+  local required=(LICENSE buildkite-gha)
   local path
   for path in "${required[@]}"; do [[ -f "$dir/$path" && ! -L "$dir/$path" ]] || return 1; done
-  expected=$'LICENSE\nbuildkite-gha\nruntimes\nruntimes/node20\nruntimes/node20/LICENSE\nruntimes/node20/bin\nruntimes/node20/bin/node\nruntimes/node24\nruntimes/node24/LICENSE\nruntimes/node24/bin\nruntimes/node24/bin/node'
+  expected=$'LICENSE\nbuildkite-gha'
   actual="$(cd "$dir" && find . -print | sed '1d; s#^\./##' | LC_ALL=C sort)" || return 1
   [[ "$actual" == "$expected" ]] || return 1
-  chmod 0755 "$dir" "$dir/runtimes" "$dir/runtimes/node20" "$dir/runtimes/node20/bin" "$dir/runtimes/node24" "$dir/runtimes/node24/bin"
-  chmod 0644 "$dir/LICENSE" "$dir/runtimes/node20/LICENSE" "$dir/runtimes/node24/LICENSE"
-  chmod 0755 "$dir/buildkite-gha" "$dir/runtimes/node20/bin/node" "$dir/runtimes/node24/bin/node"
+  chmod 0755 "$dir" "$dir/buildkite-gha"
+  chmod 0644 "$dir/LICENSE"
   output="$("$dir/buildkite-gha" --version 2>/dev/null)" || return 1
   [[ "$output" == "buildkite-gha $version" ]] || { gha_error "downloaded CLI reports an unexpected version: $output"; return 1; }
-  "$dir/runtimes/node20/bin/node" --version 2>/dev/null | grep -Eq '^v20\.' || return 1
-  "$dir/runtimes/node24/bin/node" --version 2>/dev/null | grep -Eq '^v24\.' || return 1
 }
 
 install_buildkite_gha() (
@@ -96,7 +93,7 @@ install_buildkite_gha() (
   mkdir -p "$(dirname "$destination")"
   staged="$(mktemp -d "$(dirname "$destination")/.Linux_x86_64.XXXXXX")" || return 1
   tar -xzf "$archive" -C "$staged" || { rm -rf "$staged"; gha_error "failed to extract CLI archive"; return 1; }
-  gha_verify_distribution "$staged" "$version" || { rm -rf "$staged"; gha_error "extracted CLI or bundled Node runtimes failed validation"; return 1; }
+  gha_verify_distribution "$staged" "$version" || { rm -rf "$staged"; gha_error "extracted CLI failed validation"; return 1; }
   if ln -sn "${staged##*/}" "$destination" 2>/dev/null; then :; else
     rm -rf "$staged"
     gha_verify_distribution "$destination" "$version" || { gha_error "concurrent CLI installation did not produce a valid cache"; return 1; }

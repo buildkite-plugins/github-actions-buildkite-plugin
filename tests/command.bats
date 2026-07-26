@@ -7,26 +7,20 @@ setup() {
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW=".github/workflows/ci.yml"
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION="0.1.0"
   export MOCK_LOG="$TMP/mock.log"
-  mkdir -p "$TMP/bin" "$TMP/payload/runtimes/node20/bin" "$TMP/payload/runtimes/node24/bin"
+  mkdir -p "$TMP/bin" "$TMP/payload"
   : > "$MOCK_LOG"
   printf 'license\n' > "$TMP/payload/LICENSE"
-  printf 'node license\n' > "$TMP/payload/runtimes/node20/LICENSE"
-  printf 'node license\n' > "$TMP/payload/runtimes/node24/LICENSE"
   cat > "$TMP/payload/buildkite-gha" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.1.0'; exit; fi
 printf '%s\n' "$*" >> "${MOCK_LOG:?}"
 exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
-  cat > "$TMP/payload/runtimes/node20/bin/node" <<'EOF'
+  cat > "$TMP/bin/mise" <<'EOF'
 #!/usr/bin/env bash
-echo v20.19.0
+exit 0
 EOF
-  cat > "$TMP/payload/runtimes/node24/bin/node" <<'EOF'
-#!/usr/bin/env bash
-echo v24.4.0
-EOF
-  chmod +x "$TMP/payload/buildkite-gha" "$TMP/payload/runtimes/node20/bin/node" "$TMP/payload/runtimes/node24/bin/node"
+  chmod +x "$TMP/payload/buildkite-gha" "$TMP/bin/mise"
   make_release
   cat > "$TMP/bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -52,8 +46,7 @@ EOF
 }
 
 make_release() {
-  tar -czf "$TMP/release.tar.gz" -C "$TMP/payload" \
-    buildkite-gha LICENSE runtimes/node20/bin/node runtimes/node20/LICENSE runtimes/node24/bin/node runtimes/node24/LICENSE
+  tar -czf "$TMP/release.tar.gz" -C "$TMP/payload" buildkite-gha LICENSE
   printf '%s  buildkite-gha_Linux_x86_64.tar.gz\n' "$(sha256sum "$TMP/release.tar.gz" | awk '{print $1}')" > "$TMP/checksums.txt"
 }
 
@@ -101,6 +94,15 @@ EOF
   [[ "$output" == *"only Linux x86-64"* ]]
 }
 
+@test "requires mise before installing the CLI" {
+  rm "$TMP/bin/mise"
+  export PATH="$TMP/bin:/usr/bin:/bin"
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"required command 'mise' was not found"* ]]
+  ! grep -q '^https://' "$MOCK_LOG"
+}
+
 @test "rejects missing malformed duplicate and mismatched checksums without running importer" {
   for content in '' 'not-a-checksum' "$(printf '%064d  buildkite-gha_Linux_x86_64.tar.gz\n%064d  buildkite-gha_Linux_x86_64.tar.gz' 0 0)" "$(printf '%064d  buildkite-gha_Linux_x86_64.tar.gz' 0)"; do
     rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"; printf '%s\n' "$content" > "$TMP/checksums.txt"; : > "$MOCK_LOG"
@@ -112,7 +114,7 @@ EOF
 
 @test "rejects unexpected content and symlinks before extraction" {
   printf 'bad\n' > "$TMP/payload/evil"
-  tar -czf "$TMP/release.tar.gz" -C "$TMP/payload" buildkite-gha LICENSE runtimes/node20/bin/node runtimes/node20/LICENSE runtimes/node24/bin/node runtimes/node24/LICENSE evil
+  tar -czf "$TMP/release.tar.gz" -C "$TMP/payload" buildkite-gha LICENSE evil
   printf '%s  buildkite-gha_Linux_x86_64.tar.gz\n' "$(sha256sum "$TMP/release.tar.gz" | awk '{print $1}')" > "$TMP/checksums.txt"
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]

@@ -27,6 +27,7 @@ case "$(uname -m)" in
   x86_64|amd64) ;;
   *) echo "github-actions plugin: unsupported architecture '$(uname -m)'; only Linux x86-64 is supported" >&2; exit 1 ;;
 esac
+gha_require mise
 
 distribution="$(install_buildkite_gha "$version")"
 exec "${distribution}/buildkite-gha" upload --runtime-queue hosted "$workflow"
