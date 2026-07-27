@@ -1,0 +1,14 @@
+steps:
+  - label: ":sparkles: Tests"
+    plugins:
+      - plugin-tester#v1.3.0: ~
+  - label: ":lint-roller: Plugin lint"
+    plugins:
+      - plugin-linter#v3.3.0:
+          id: github-actions
+  - label: ":shell: Shellcheck"
+    plugins:
+      - shellcheck#v1.4.0:
+          files:
+            - hooks/*
+            - lib/*

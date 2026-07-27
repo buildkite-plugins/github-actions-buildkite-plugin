@@ -1,0 +1,28 @@
+name: GitHub Actions
+description: Run a GitHub Actions workflow as native Buildkite steps
+author: https://github.com/buildkite-plugins
+requirements:
+  - bash
+  - curl
+  - tar
+  - sha256sum
+  - awk
+  - grep
+  - find
+  - sed
+  - sort
+  - mktemp
+  - cp
+configuration:
+  properties:
+    workflow:
+      type: string
+      minLength: 1
+      description: Path to the GitHub Actions workflow to upload.
+    version:
+      type: string
+      default: "0.1.0"
+      description: Exact pre-1.0 buildkite-gha CLI version.
+  required:
+    - workflow
+  additionalProperties: false
