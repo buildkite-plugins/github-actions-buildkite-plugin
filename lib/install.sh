@@ -131,41 +131,52 @@ gha_verify_distribution() {
 }
 
 install_buildkite_gha() (
-  local raw="$1" version tag root destination invalid work archive checksums listing checksum matches actual_checksum staged
+  local raw="$1" version tag root destination cached_archive invalid work archive checksums listing checksum matches actual_checksum staged run
   version="$(gha_version "$raw")" || return 1
   tag="v${version}"
   root="$(gha_cache_root)" || return 1
   destination="${root}/${tag}/Linux_x86_64"
-  if [[ -x "$destination/buildkite-gha" ]] && gha_verify_distribution "$destination" "$version"; then
-    printf '%s\n' "$destination"
-    return
-  fi
-  for command in curl tar sha256sum awk grep mktemp; do gha_require "$command" || return 1; done
-  if [[ -e "$destination" || -L "$destination" ]]; then
-    invalid="${destination}.invalid.$$"
-    if mv -- "$destination" "$invalid" 2>/dev/null; then
-      rm -rf -- "$invalid"
-    fi
-  fi
+  cached_archive="$destination/buildkite-gha_Linux_x86_64.tar.gz"
+  for command in curl tar sha256sum awk grep mktemp cp; do gha_require "$command" || return 1; done
   work="$(mktemp -d "${TMPDIR:-/tmp}/github-actions-buildkite-plugin.XXXXXX")" || return 1
   archive="$work/buildkite-gha_Linux_x86_64.tar.gz"; checksums="$work/checksums.txt"; listing="$work/listing"
   trap 'rm -rf "$work"' EXIT
   local base="https://github.com/buildkite/buildkite-gha/releases/download/${tag}"
-  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "${base}/buildkite-gha_Linux_x86_64.tar.gz" -o "$archive" || { gha_error "failed to download CLI archive for $tag"; return 1; }
   curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "${base}/checksums.txt" -o "$checksums" || { gha_error "failed to download checksums for $tag"; return 1; }
   matches="$(awk '$2 == "buildkite-gha_Linux_x86_64.tar.gz" && length($1) == 64 && $1 ~ /^[0-9a-fA-F]+$/ { print tolower($1) }' "$checksums")"
   [[ "$(printf '%s\n' "$matches" | grep -c .)" -eq 1 ]] || { gha_error "checksums.txt must contain exactly one valid archive checksum"; return 1; }
   checksum="$(printf '%s' "$matches")"
+
+  if [[ -f "$cached_archive" && ! -L "$cached_archive" ]] && cp -- "$cached_archive" "$archive" 2>/dev/null; then
+    actual_checksum="$(sha256sum "$archive" | awk 'NR == 1 { print tolower($1) }')" || { gha_error "could not hash cached CLI archive"; return 1; }
+    if [[ "$actual_checksum" != "$checksum" ]]; then
+      rm -f -- "$archive"
+    fi
+  fi
+  if [[ ! -f "$archive" ]]; then
+    if [[ -e "$destination" || -L "$destination" ]]; then
+      invalid="${destination}.invalid.$$"
+      if mv -- "$destination" "$invalid" 2>/dev/null; then
+        rm -rf -- "$invalid"
+      fi
+    fi
+    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "${base}/buildkite-gha_Linux_x86_64.tar.gz" -o "$archive" || { gha_error "failed to download CLI archive for $tag"; return 1; }
+  fi
   actual_checksum="$(sha256sum "$archive" | awk 'NR == 1 { print tolower($1) }')" || { gha_error "could not hash CLI archive"; return 1; }
   [[ "$actual_checksum" == "$checksum" ]] || { gha_error "CLI archive checksum verification failed"; return 1; }
   gha_validate_archive "$archive" "$listing" || return 1
-  mkdir -p "$(dirname "$destination")"
-  staged="$(mktemp -d "$(dirname "$destination")/.Linux_x86_64.XXXXXX")" || return 1
-  tar -xzf "$archive" -C "$staged" || { rm -rf "$staged"; gha_error "failed to extract CLI archive"; return 1; }
-  gha_verify_distribution "$staged" "$version" || { rm -rf "$staged"; gha_error "extracted CLI failed validation"; return 1; }
-  if ln -sn "${staged##*/}" "$destination" 2>/dev/null; then :; else
-    rm -rf "$staged"
-    gha_verify_distribution "$destination" "$version" || { gha_error "concurrent CLI installation did not produce a valid cache"; return 1; }
+
+  if [[ ! -f "$cached_archive" || -L "$cached_archive" ]]; then
+    mkdir -p "$(dirname "$destination")"
+    staged="$(mktemp -d "$(dirname "$destination")/.Linux_x86_64.XXXXXX")" || return 1
+    cp -- "$archive" "$staged/buildkite-gha_Linux_x86_64.tar.gz" || { rm -rf "$staged"; return 1; }
+    if ln -sn "${staged##*/}" "$destination" 2>/dev/null; then :; else
+      rm -rf "$staged"
+    fi
   fi
-  printf '%s\n' "$destination"
+
+  run="$(mktemp -d "${TMPDIR:-/tmp}/github-actions-buildkite-plugin-run.XXXXXX")" || return 1
+  tar -xzf "$archive" -C "$run" || { rm -rf "$run"; gha_error "failed to extract CLI archive"; return 1; }
+  gha_verify_distribution "$run" "$version" || { rm -rf "$run"; gha_error "extracted CLI failed validation"; return 1; }
+  printf '%s\n' "$run"
 )

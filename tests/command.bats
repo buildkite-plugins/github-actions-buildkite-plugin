@@ -13,6 +13,7 @@ setup() {
   cat > "$TMP/payload/buildkite-gha" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.1.0'; exit; fi
+printf 'executable=%s\n' "$0" >> "${MOCK_LOG:?}"
 printf '%s\n' "$*" >> "${MOCK_LOG:?}"
 exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
@@ -38,7 +39,7 @@ echo "$url" >> "${MOCK_LOG:?}"
 case "$url" in
   */mise-v2026.5.12-linux-x64.tar.gz) cp "${MOCK_MISE_ARCHIVE:?}" "$out" ;;
   */buildkite-gha_Linux_x86_64.tar.gz) cp "${MOCK_ARCHIVE:?}" "$out" ;;
-  */checksums.txt) cp "${MOCK_CHECKSUMS:?}" "$out" ;;
+  */checksums.txt) [[ "${MOCK_FAIL_CHECKSUMS:-}" != 1 ]] || exit 22; cp "${MOCK_CHECKSUMS:?}" "$out" ;;
   *) exit 2 ;;
 esac
 EOF
@@ -162,12 +163,50 @@ EOF
   [[ "$output" == *"unexpected, missing, duplicate, or unsafe"* ]]
 }
 
-@test "reuses valid cache without downloading" {
+@test "reuses a remotely verified cached archive in a private directory" {
+  export TMPDIR="$TMP/work"
+  mkdir -p "$TMPDIR"
   run "$REPO/hooks/command"; [ "$status" -eq 0 ]
   : > "$MOCK_LOG"
   run "$REPO/hooks/command"; [ "$status" -eq 0 ]
   [ "$(grep -c '^upload ' "$MOCK_LOG")" -eq 1 ]
-  run grep -q '^https://' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.1.0/checksums.txt' "$MOCK_LOG"
+  run grep -q '/buildkite-gha_Linux_x86_64.tar.gz$' "$MOCK_LOG"
+  [ "$status" -eq 1 ]
+  executable="$(awk -F= '/^executable=/ { print $2 }' "$MOCK_LOG")"
+  [[ "$executable" == "$TMPDIR"/github-actions-buildkite-plugin-run.*/buildkite-gha ]]
+  [[ "$executable" != "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"/* ]]
+  [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
+}
+
+@test "replaces a tampered cached archive before execution" {
+  run "$REPO/hooks/command"; [ "$status" -eq 0 ]
+  cache="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.1.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz"
+  mkdir "$TMP/tampered"
+  printf 'license\n' > "$TMP/tampered/LICENSE"
+  cat > "$TMP/tampered/buildkite-gha" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.1.0'; exit; fi
+echo tampered >> "${MOCK_LOG:?}"
+EOF
+  chmod +x "$TMP/tampered/buildkite-gha"
+  tar -czf "$cache" -C "$TMP/tampered" buildkite-gha LICENSE
+  : > "$MOCK_LOG"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  run grep -q '^tampered$' "$MOCK_LOG"
+  [ "$status" -eq 1 ]
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.1.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
+  [ "$(grep -c '^upload ' "$MOCK_LOG")" -eq 1 ]
+}
+
+@test "fails closed when cached archive cannot be checked upstream" {
+  run "$REPO/hooks/command"; [ "$status" -eq 0 ]
+  : > "$MOCK_LOG"
+  export MOCK_FAIL_CHECKSUMS=1
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  run grep -q '^upload ' "$MOCK_LOG"
   [ "$status" -eq 1 ]
 }
 
@@ -180,7 +219,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [ -x "$MISE_HOSTED_CACHE_VOLUME_ROOT/github-actions-buildkite-plugin/mise/v2026.5.12/Linux_x86_64/mise/bin/mise" ]
-  [ -x "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin/v0.1.0/Linux_x86_64/buildkite-gha" ]
+  [ -f "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin/v0.1.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz" ]
 }
 
 @test "replaces a mise cache containing unverified siblings" {
@@ -205,14 +244,10 @@ EOF
   mise_destination="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/mise/v2026.5.12/Linux_x86_64"
   [ -L "$destination" ]
   [ -L "$mise_destination" ]
-  # shellcheck source=../lib/install.sh
-  source "$REPO/lib/install.sh"
-  if ! gha_verify_distribution "$destination" 0.1.0; then
-    ls -la "$(dirname "$destination")"
-    find -L "$destination" -print
-    cat "$TMP/first.out" "$TMP/second.out"
-    false
-  fi
+  cached_archive="$destination/buildkite-gha_Linux_x86_64.tar.gz"
+  [ -f "$cached_archive" ]
+  expected="$(awk '$2 == "buildkite-gha_Linux_x86_64.tar.gz" { print $1 }' "$TMP/checksums.txt")"
+  [ "$(/usr/bin/sha256sum "$cached_archive" | awk '{ print $1 }')" = "$expected" ]
   [ "$(grep -c '^upload --runtime-queue hosted ' "$MOCK_LOG")" -eq 2 ]
 }
 

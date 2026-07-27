@@ -12,6 +12,7 @@ requirements:
   - sed
   - sort
   - mktemp
+  - cp
 configuration:
   properties:
     workflow:
