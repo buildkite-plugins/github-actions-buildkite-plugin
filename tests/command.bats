@@ -12,7 +12,7 @@ setup() {
   printf 'license\n' > "$TMP/payload/LICENSE"
   cat > "$TMP/payload/buildkite-gha" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.2.0'; exit; fi
+if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.2.1'; exit; fi
 printf 'executable=%s\n' "$0" >> "${MOCK_LOG:?}"
 printf '%s\n' "$*" >> "${MOCK_LOG:?}"
 exit "${MOCK_IMPORTER_EXIT:-0}"
@@ -77,13 +77,13 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
   grep -Fx 'https://github.com/jdx/mise/releases/download/v2026.5.12/mise-v2026.5.12-linux-x64.tar.gz' "$MOCK_LOG"
-  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.2.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
-  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.2.0/checksums.txt' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.2.1/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.2.1/checksums.txt' "$MOCK_LOG"
   [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
 }
 
 @test "accepts a leading v and rejects version injection" {
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.2.0
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.2.1
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"
@@ -152,7 +152,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
   [[ "$output" == *"unexpected, missing, duplicate, or unsafe"* ]] || { echo "$output"; false; }
-  [ ! -e "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.2.0/Linux_x86_64/evil" ]
+  [ ! -e "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.2.1/Linux_x86_64/evil" ]
 
   rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"
   rm "$TMP/payload/buildkite-gha"
@@ -170,7 +170,7 @@ EOF
   : > "$MOCK_LOG"
   run "$REPO/hooks/command"; [ "$status" -eq 0 ]
   [ "$(grep -c '^upload ' "$MOCK_LOG")" -eq 1 ]
-  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.2.0/checksums.txt' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.2.1/checksums.txt' "$MOCK_LOG"
   run grep -q '/buildkite-gha_Linux_x86_64.tar.gz$' "$MOCK_LOG"
   [ "$status" -eq 1 ]
   executable="$(awk -F= '/^executable=/ { print $2 }' "$MOCK_LOG")"
@@ -181,12 +181,12 @@ EOF
 
 @test "replaces a tampered cached archive before execution" {
   run "$REPO/hooks/command"; [ "$status" -eq 0 ]
-  cache="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.2.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz"
+  cache="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.2.1/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz"
   mkdir "$TMP/tampered"
   printf 'license\n' > "$TMP/tampered/LICENSE"
   cat > "$TMP/tampered/buildkite-gha" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.2.0'; exit; fi
+if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.2.1'; exit; fi
 echo tampered >> "${MOCK_LOG:?}"
 EOF
   chmod +x "$TMP/tampered/buildkite-gha"
@@ -196,7 +196,7 @@ EOF
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   run grep -q '^tampered$' "$MOCK_LOG"
   [ "$status" -eq 1 ]
-  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.2.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.2.1/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
   [ "$(grep -c '^upload ' "$MOCK_LOG")" -eq 1 ]
 }
 
@@ -219,7 +219,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [ -x "$MISE_HOSTED_CACHE_VOLUME_ROOT/github-actions-buildkite-plugin/mise/v2026.5.12/Linux_x86_64/mise/bin/mise" ]
-  [ -f "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin/v0.2.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz" ]
+  [ -f "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin/v0.2.1/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz" ]
 }
 
 @test "replaces a mise cache containing unverified siblings" {
@@ -240,7 +240,7 @@ EOF
   "$REPO/hooks/command" >"$TMP/second.out" 2>&1 & second=$!
   wait "$first"
   wait "$second"
-  destination="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.2.0/Linux_x86_64"
+  destination="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.2.1/Linux_x86_64"
   mise_destination="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/mise/v2026.5.12/Linux_x86_64"
   [ -L "$destination" ]
   [ -L "$mise_destination" ]
