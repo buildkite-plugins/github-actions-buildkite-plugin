@@ -4,28 +4,22 @@ Use this guide to test plugin changes, verify the live smoke test, and publish a
 
 ## Test changes
 
-Before you submit changes, run the Bats test suite, ShellCheck, and the Buildkite plugin linter:
-
-```bash
-bats tests
-shellcheck hooks/* lib/*
-docker run --rm -v "$PWD:/plugin:ro" buildkite/plugin-linter --id github-actions
-```
+Before you submit changes, run `bats tests`, `shellcheck hooks/* lib/*`, and the Buildkite plugin linter.
 
 The Bats suite makes no live network requests. The plugin installs its pinned mise release and otherwise requires the standard Linux utilities listed in `plugin.yml`.
 
 ## Live smoke test
 
-The Buildkite Pipelines build also runs a live smoke test without a cache service. The smoke test:
+The Buildkite Pipelines build also runs a live, service-free smoke test. The smoke test:
 
 - Pins this plugin to the build's exact `BUILDKITE_COMMIT`
 - Omits the optional CLI `version`
-- Downloads and verifies version `0.2.0` of the public `buildkite-gha` CLI
+- Downloads and verifies the public `buildkite-gha` CLI `v0.2.0` release
 - Uploads `.github/workflows/plugin-smoke.yml`
 
 The generated job checks out the same public commit without authentication and verifies the release-candidate defaults. This test requires a full 40-character public GitHub commit and Buildkite hosted agents running Linux x86-64. It does not require secrets, cloud provider tokens, or GitHub Actions cache token minting.
 
-The demo pipeline in the public [`buildkite/buildkite-gha` repository](https://github.com/buildkite/buildkite-gha) tests the cache service separately.
+The demo pipeline in the public `buildkite/buildkite-gha` repository tests the cache service separately.
 
 ## Test cache override
 
