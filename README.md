@@ -11,7 +11,7 @@ steps:
           workflow: .github/workflows/ci.yml
 ```
 
-The command step must define a `key`, which the importer uses to make generated steps depend on the upload step. The plugin downloads and verifies the public `buildkite/buildkite-gha` CLI release, then asks it to upload the workflow as a Buildkite pipeline. The plugin tag (`github-actions#v0.2.1`) and CLI `version` are independent. CLI `0.2.1` is the default; pin an exact pre-1.0 release explicitly when needed:
+The command step must define a `key`, which the importer uses to make generated steps depend on the upload step. The plugin downloads and verifies the public `buildkite/buildkite-gha` CLI release, then asks it to upload the workflow as a Buildkite pipeline. The plugin release tag and CLI `version` are independent. CLI `0.2.1` is the default; pin an exact pre-1.0 release explicitly when needed:
 
 ```yaml
 steps:
