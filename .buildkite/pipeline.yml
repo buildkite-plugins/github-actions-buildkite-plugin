@@ -12,3 +12,29 @@ steps:
           files:
             - hooks/*
             - lib/*
+  - label: ":pipeline: Load live v0.2.0 plugin smoke"
+    key: "live-plugin-smoke-loader"
+    agents:
+      queue: "hosted"
+    timeout_in_minutes: 15
+    retry:
+      automatic: false
+    command: |
+      set -euo pipefail
+      commit="$${BUILDKITE_COMMIT:?BUILDKITE_COMMIT is required}"
+      [[ "$$commit" =~ ^[0-9a-f]{40}$$ ]]
+      cat <<YAML | buildkite-agent pipeline upload
+      steps:
+        - label: ":github: Live v0.2.0 plugin smoke"
+          key: "live-plugin-smoke-importer"
+          agents:
+            queue: "hosted"
+          timeout_in_minutes: 15
+          retry:
+            automatic: false
+          env:
+            BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
+          plugins:
+            - github-actions#$$commit:
+                workflow: .github/workflows/plugin-smoke.yml
+      YAML
