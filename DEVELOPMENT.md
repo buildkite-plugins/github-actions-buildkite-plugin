@@ -1,6 +1,6 @@
 # Development
 
-Run `bats tests`, `shellcheck hooks/* lib/*`, and the Buildkite plugin linter before submitting changes. The Bats suite makes no live network requests. The plugin installs its pinned mise release and otherwise requires the standard Linux utilities listed in `plugin.yml`.
+Run `bats tests`, `shellcheck hooks/* lib/*`, and the Buildkite plugin linter before submitting changes. The Bats suite makes no live network requests. The importer requires the standard Linux utilities listed in `plugin.yml`; generated jobs containing actions require exact mise 2026.5.12 from their runtime queue or image.
 
 The Buildkite pipeline also runs a live service-free smoke test. Its importer pins this plugin to the build's exact `BUILDKITE_COMMIT`, omits the optional CLI `version`, downloads and verifies the real public CLI `v0.4.1` release, and uploads `.github/workflows/plugin-smoke.yml`. The generated hosted job anonymously checks out the same public commit and verifies the release-candidate defaults. This lane requires a full 40-character public GitHub commit and Linux x86-64 Hosted Agents; it does not require secrets, provider tokens, GHAC minting, or a cache service. Cache-service proof remains a separate extension in the `buildkite/buildkite-gha` demo pipeline.
 
@@ -15,3 +15,8 @@ that real archive. The companion cache-extension demo must also pass against the
 same exact plugin commit. After the Buildkite build for `main` passes, create
 and push the matching `v0.x.y` tag. The Buildkite pipeline is configured to test
 tag builds as well.
+
+For changes to the generated-job runtime contract, publish the compatible
+`buildkite-gha` release first. Update the plugin's CLI default in a separate
+change only after that release exists, then pass the live smoke before tagging
+the plugin. This keeps an unreleased CLI version out of the plugin defaults.

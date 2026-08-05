@@ -30,9 +30,6 @@ esac
 
 echo "~~~ :github: Prepare workflow"
 
-mise="$(install_mise)"
-mise_dir="$(dirname "$mise")"
 distribution="$(install_buildkite_gha "$version")"
 trap 'rm -rf "$distribution"' EXIT
-export PATH="$mise_dir:$PATH"
 "${distribution}/buildkite-gha" upload --runtime-queue hosted "$workflow"
