@@ -3,6 +3,8 @@
 setup() {
   REPO="$BATS_TEST_DIRNAME/.."
   TMP="$(mktemp -d)"
+  export REAL_CP="$(command -v cp)"
+  export REAL_MKTEMP="$(command -v mktemp)"
   export BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT="$TMP/cache"
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW=".github/workflows/ci.yml"
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION BUILDKITE_PLUGIN__VERSION
@@ -259,7 +261,7 @@ EOF
   cat > "$TMP/bin/mktemp" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$*" == *'/v0.2.1/.Linux_x86_64.'* ]]; then exit 1; fi
-exec /usr/bin/mktemp "$@"
+exec "${REAL_MKTEMP:?}" "$@"
 EOF
   chmod +x "$TMP/bin/mktemp"
   : > "$MOCK_LOG"
@@ -280,7 +282,7 @@ if [[ "$*" == *'/cache/v0.2.1/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz'* ]
   printf 'partial\n' > "$destination"
   exit 1
 fi
-exec /usr/bin/cp "$@"
+exec "${REAL_CP:?}" "$@"
 EOF
   chmod +x "$TMP/bin/cp"
   : > "$MOCK_LOG"
