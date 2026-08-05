@@ -3,6 +3,8 @@
 setup() {
   REPO="$BATS_TEST_DIRNAME/.."
   TMP="$(mktemp -d)"
+  export REAL_CP="$(command -v cp)"
+  export REAL_MKTEMP="$(command -v mktemp)"
   export BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT="$TMP/cache"
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW=".github/workflows/ci.yml"
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION BUILDKITE_PLUGIN__VERSION
@@ -14,6 +16,7 @@ setup() {
 #!/usr/bin/env bash
 if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.2.1'; exit; fi
 printf 'executable=%s\n' "$0" >> "${MOCK_LOG:?}"
+printf 'group=%s\n' "${BUILDKITE_GROUP_LABEL:-}" >> "${MOCK_LOG:?}"
 printf '%s\n' "$*" >> "${MOCK_LOG:?}"
 exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
@@ -79,7 +82,15 @@ teardown() { rm -rf "$TMP"; }
   grep -Fx 'https://github.com/jdx/mise/releases/download/v2026.5.12/mise-v2026.5.12-linux-x64.tar.gz' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.2.1/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.2.1/checksums.txt' "$MOCK_LOG"
+  [[ "$output" == *"~~~ :github: Prepare workflow"* ]]
   [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
+}
+
+@test "preserves the workflow group label for the importer" {
+  export BUILDKITE_GROUP_LABEL="GitHub Actions / checks"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx 'group=GitHub Actions / checks' "$MOCK_LOG"
 }
 
 @test "accepts a leading v and rejects version injection" {
@@ -219,7 +230,66 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [ -x "$MISE_HOSTED_CACHE_VOLUME_ROOT/github-actions-buildkite-plugin/mise/v2026.5.12/Linux_x86_64/mise/bin/mise" ]
+  [ -f "$MISE_HOSTED_CACHE_VOLUME_ROOT/github-actions-buildkite-plugin/v0.2.1/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz" ]
+  [ ! -e "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin" ]
+}
+
+@test "falls back to the agent cache when the hosted volume is unavailable" {
+  unset BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT
+  export BUILDKITE_COMPUTE_TYPE=hosted
+  export BUILDKITE_AGENT_DATA_PATH="$TMP/agent"
+  export MISE_HOSTED_CACHE_VOLUME_ROOT="$TMP/not-attached"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ -x "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin/mise/v2026.5.12/Linux_x86_64/mise/bin/mise" ]
   [ -f "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin/v0.2.1/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz" ]
+}
+
+@test "does not bypass an unavailable explicit test cache override" {
+  printf 'not a directory\n' > "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"mise cache '$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT' is unavailable"* ]]
+  run grep -q '/buildkite-gha/releases/' "$MOCK_LOG"
+  [ "$status" -eq 1 ]
+}
+
+@test "continues when the verified CLI archive cannot be cached" {
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.2.1"
+  cat > "$TMP/bin/mktemp" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *'/v0.2.1/.Linux_x86_64.'* ]]; then exit 1; fi
+exec "${REAL_MKTEMP:?}" "$@"
+EOF
+  chmod +x "$TMP/bin/mktemp"
+  : > "$MOCK_LOG"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"continuing without caching"* ]]
+  grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+  [ ! -e "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.2.1/Linux_x86_64" ]
+}
+
+@test "downloads after a cached archive copy fails partway" {
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  cat > "$TMP/bin/cp" <<'EOF'
+#!/usr/bin/env bash
+destination="${!#}"
+if [[ "$*" == *'/cache/v0.2.1/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz'* ]]; then
+  printf 'partial\n' > "$destination"
+  exit 1
+fi
+exec "${REAL_CP:?}" "$@"
+EOF
+  chmod +x "$TMP/bin/cp"
+  : > "$MOCK_LOG"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.2.1/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
+  grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
 }
 
 @test "replaces a mise cache containing unverified siblings" {
