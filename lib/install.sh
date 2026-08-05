@@ -9,7 +9,7 @@ gha_require() {
 gha_version() {
   local value="${1#v}"
   if [[ ! "$value" =~ ^0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
-    gha_error "invalid CLI version '$1'; expected strict pre-1.0 semver (for example 0.2.3)"
+    gha_error "invalid CLI version '$1'; expected strict pre-1.0 semver (for example 0.2.4)"
     return 1
   fi
   printf '%s\n' "$value"
