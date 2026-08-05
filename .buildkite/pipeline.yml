@@ -12,7 +12,7 @@ steps:
           files:
             - hooks/*
             - lib/*
-  - label: ":pipeline: Load live v0.2.0 plugin smoke"
+  - label: ":pipeline: Load live released plugin smoke"
     key: "live-plugin-smoke-loader"
     agents:
       queue: "hosted"
@@ -25,7 +25,7 @@ steps:
       [[ "$$commit" =~ ^[0-9a-f]{40}$$ ]]
       cat <<YAML | buildkite-agent pipeline upload
       steps:
-        - label: ":github: Live v0.2.0 plugin smoke"
+        - label: ":github: Live released plugin smoke"
           key: "live-plugin-smoke-importer"
           agents:
             queue: "hosted"
