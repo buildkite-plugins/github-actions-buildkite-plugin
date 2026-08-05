@@ -16,9 +16,13 @@ gha_version() {
 }
 
 gha_cache_root() {
-  local root
+  local hosted_root root
   if [[ -n "${BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT:-}" ]]; then
     root="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"
+  elif [[ "${BUILDKITE_COMPUTE_TYPE:-self-hosted}" == hosted ]] &&
+    hosted_root="${MISE_HOSTED_CACHE_VOLUME_ROOT:-/cache/bkcache}" &&
+    [[ -d "$hosted_root" && -w "$hosted_root" ]]; then
+    root="${hosted_root}/github-actions-buildkite-plugin"
   elif [[ -n "${BUILDKITE_AGENT_DATA_PATH:-}" ]]; then
     root="${BUILDKITE_AGENT_DATA_PATH}/cache/github-actions-buildkite-plugin"
   elif [[ -n "${XDG_CACHE_HOME:-}" ]]; then
@@ -131,7 +135,7 @@ gha_verify_distribution() {
 }
 
 install_buildkite_gha() (
-  local raw="$1" version tag root destination cached_archive invalid work archive checksums listing checksum matches actual_checksum staged run
+  local raw="$1" version tag root destination cached_archive invalid work archive checksums listing checksum matches actual_checksum staged run cache_hit
   version="$(gha_version "$raw")" || return 1
   tag="v${version}"
   root="$(gha_cache_root)" || return 1
@@ -147,13 +151,13 @@ install_buildkite_gha() (
   [[ "$(printf '%s\n' "$matches" | grep -c .)" -eq 1 ]] || { gha_error "checksums.txt must contain exactly one valid archive checksum"; return 1; }
   checksum="$(printf '%s' "$matches")"
 
+  cache_hit=false
   if [[ -f "$cached_archive" && ! -L "$cached_archive" ]] && cp -- "$cached_archive" "$archive" 2>/dev/null; then
-    actual_checksum="$(sha256sum "$archive" | awk 'NR == 1 { print tolower($1) }')" || { gha_error "could not hash cached CLI archive"; return 1; }
-    if [[ "$actual_checksum" != "$checksum" ]]; then
-      rm -f -- "$archive"
-    fi
+    actual_checksum="$(sha256sum "$archive" | awk 'NR == 1 { print tolower($1) }')" || actual_checksum=""
+    [[ "$actual_checksum" != "$checksum" ]] || cache_hit=true
   fi
-  if [[ ! -f "$archive" ]]; then
+  if [[ "$cache_hit" != true ]]; then
+    rm -f -- "$archive"
     if [[ -e "$destination" || -L "$destination" ]]; then
       invalid="${destination}.invalid.$$"
       if mv -- "$destination" "$invalid" 2>/dev/null; then
@@ -167,11 +171,16 @@ install_buildkite_gha() (
   gha_validate_archive "$archive" "$listing" || return 1
 
   if [[ ! -f "$cached_archive" || -L "$cached_archive" ]]; then
-    mkdir -p "$(dirname "$destination")"
-    staged="$(mktemp -d "$(dirname "$destination")/.Linux_x86_64.XXXXXX")" || return 1
-    cp -- "$archive" "$staged/buildkite-gha_Linux_x86_64.tar.gz" || { rm -rf "$staged"; return 1; }
-    if ln -sn "${staged##*/}" "$destination" 2>/dev/null; then :; else
-      rm -rf "$staged"
+    staged=""
+    if mkdir -p "$(dirname "$destination")" 2>/dev/null &&
+      staged="$(mktemp -d "$(dirname "$destination")/.Linux_x86_64.XXXXXX" 2>/dev/null)" &&
+      cp -- "$archive" "$staged/buildkite-gha_Linux_x86_64.tar.gz" 2>/dev/null; then
+      if ln -sn "${staged##*/}" "$destination" 2>/dev/null; then :; else
+        rm -rf -- "$staged" 2>/dev/null || :
+      fi
+    else
+      [[ -z "$staged" ]] || rm -rf -- "$staged" 2>/dev/null || :
+      gha_error "cache '$root' could not store the CLI archive; continuing without caching"
     fi
   fi
 

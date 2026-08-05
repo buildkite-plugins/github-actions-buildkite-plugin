@@ -24,7 +24,21 @@ steps:
 
 ## Requirements and security boundary
 
-Only Linux x86-64 (`x86_64`/`amd64`) importer agents are supported. The plugin installs mise 2026.5.12 when needed and verifies both its pinned release archive and exact cached executable tree by SHA-256. Mise uses the Buildkite hosted cache volume when one is attached, then the agent data path or standard user cache directories. CLI releases are fetched without a GitHub token from the hard-coded public `buildkite/buildkite-gha` repository. The release archive is cached, but every job fetches its upstream checksum, verifies a private archive copy and fixed CLI-only layout, then executes a job-private extraction. The hosted runtime queue is selected by the plugin and cannot be configured.
+Only Linux x86-64 (`x86_64`/`amd64`) importer agents are supported. The plugin installs mise 2026.5.12 when needed and verifies both its pinned release archive and exact cached executable tree by SHA-256. On Buildkite hosted agents, both mise and the CLI release archive use the attached cache volume when available, then the agent data path or standard user cache directories. CLI releases are fetched without a GitHub token from the hard-coded public `buildkite/buildkite-gha` repository. The release archive is cached, but every job fetches its upstream checksum, verifies a private archive copy and fixed CLI-only layout, then executes a job-private extraction. The hosted runtime queue is selected by the plugin and cannot be configured.
+
+For hosted agents, request the plugin's dedicated cache volume on the importer step:
+
+```yaml
+steps:
+  - label: ":github: GitHub Actions"
+    key: "github-actions"
+    cache: "/cache/bkcache/github-actions-buildkite-plugin"
+    plugins:
+      - github-actions#v0.2.1:
+          workflow: .github/workflows/ci.yml
+```
+
+When `/cache/bkcache` is attached and writable, the plugin automatically uses `/cache/bkcache/github-actions-buildkite-plugin` for both its pinned mise installation and verified CLI archive. The cache is best-effort: a missing or unavailable hosted cache falls back to the normal agent/user cache or a temporary directory, and a cache write failure does not prevent a downloaded CLI from running. Cache contents are never trusted as authority; cached mise files retain exact tree, checksum, and version checks, while cached CLI archives retain upstream checksum, archive layout, and extracted version checks on every use. A miss therefore changes performance, not correctness.
 
 JavaScript actions run with exact Node 20.20.2 or 24.18.0 versions installed through mise's pinned core backend with configuration disabled, so the workflow repository's mise configuration cannot change the compatibility runtime. The CLI transports the importer's verified mise executable to generated action jobs, so the hosted queue does not need it preinstalled. Those jobs automatically attach a dedicated Buildkite cache volume for mise-managed Node installations; the runtime digest-verifies and directly invokes the exact Node executable, reinstalling a mismatched cache entry before use. Cache misses remain correct, and shell-only jobs do not attach this runtime cache. Official mise Node binaries require glibc 2.28 or newer; shell-only workflows and the static `buildkite-gha` CLI do not.
 
