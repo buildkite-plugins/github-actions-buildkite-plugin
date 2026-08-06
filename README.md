@@ -1,6 +1,8 @@
 # GitHub Actions Buildkite Plugin
 
-Run a GitHub Actions workflow as native Buildkite steps:
+Run a GitHub Actions workflow as native Buildkite jobs without creating a GitHub Actions run.
+
+## Usage
 
 ```yaml
 steps:
@@ -11,16 +13,67 @@ steps:
           workflow: .github/workflows/ci.yml
 ```
 
-The command step must define a `key`, which the importer uses to make generated steps depend on the upload step. The plugin downloads and verifies the public `buildkite/buildkite-gha` CLI release, then asks it to upload the workflow as a Buildkite pipeline. The plugin release tag and CLI `version` are independent. CLI `0.4.2` is the default; pin an exact pre-1.0 release explicitly when needed:
+The importer step must have a `key`. Each workflow job and static matrix entry becomes a Buildkite job that depends on the importer.
+
+### Configuration
+
+| Option | Required | Default | Description |
+| --- | --- | --- | --- |
+| `workflow` | Yes | — | Path to the GitHub Actions workflow. |
+| `version` | No | `0.4.2` | Exact pre-1.0 `buildkite-gha` CLI version. |
+| `buildkite-gha-source-ref` | No | — | `latest` or a full lowercase commit for unreleased CLI testing. |
+| `private-checkout` | No | `false` | Enable read-only checkout of the pipeline's private GitHub repository. |
+
+The plugin release (`github-actions#v0.4.4`) and CLI `version` are independent. Set `version` only when you need a CLI release other than the default. `version` and `buildkite-gha-source-ref` are mutually exclusive.
+
+## Compatibility
+
+`buildkite-gha` intentionally supports a subset of GitHub Actions. For the default CLI, see the [`v0.4.2` compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.4.2/docs/compatibility.md) before migrating a workflow. Unsupported behavior fails explicitly rather than silently choosing a substitute.
+
+Key constraints for this plugin are:
+
+- importer and workflow jobs must use Linux x86-64;
+- supported Ubuntu runner labels map to the fixed Buildkite `hosted` queue;
+- private actions, arbitrary private-source access, Windows, macOS, OIDC, protected queues, and job or service containers are not supported; and
+- cache, artifact, checkout, and credential support is limited to the specific integrations described in the compatibility guide.
+
+Configure branch, tag, schedule, and pull request triggers in Buildkite. The workflow's `on:` block does not create Buildkite triggers. Pull request builds receive a `pull_request` context; all other Buildkite builds receive `push`.
+
+Released mode downloads the selected public `buildkite/buildkite-gha` release without a GitHub token and does not require importer-side mise. Downloads and cached copies are verified before execution. Generated action jobs use a compatible trusted mise or install a verified, pinned fallback; shell-only jobs skip that setup.
+
+## Private repositories
+
+By default, generated `actions/checkout` steps perform a credential-free, shallow checkout, so the workflow repository must be public. Set `private-checkout` to give verified checkout jobs read-only access to the pipeline's exact GitHub repository:
 
 ```yaml
 steps:
-  - key: "github-actions"
+  - label: ":github: GitHub Actions"
+    key: "github-actions"
     plugins:
       - github-actions#v0.4.4:
           workflow: .github/workflows/ci.yml
-          version: 0.4.2
+          private-checkout: true
 ```
+
+This requires Buildkite's job-bound GitHub scoped access-token service. The CLI requests fixed `contents:read` authority, and the service independently requires the event repository to match the pipeline's GitHub repository. The credential is redacted before use and supplied only to Git through a one-shot askpass pipe.
+
+This option does not populate `GITHUB_TOKEN` or `github.token`, grant write access, enable private actions, or permit alternate repositories or refs.
+
+## Caching
+
+On hosted agents, attach the plugin's cache volume to speed up the importer:
+
+```yaml
+steps:
+  - label: ":github: GitHub Actions"
+    key: "github-actions"
+    cache: "/cache/bkcache/github-actions-buildkite-plugin"
+    plugins:
+      - github-actions#v0.4.4:
+          workflow: .github/workflows/ci.yml
+```
+
+Without this volume, the plugin falls back to an agent or user cache, then a temporary directory. Cached archives remain verified, and cache misses affect performance rather than correctness. This importer cache is separate from generated-job runtime caching and the workflow's `actions/cache` behavior.
 
 ## Testing unreleased CLI source
 
@@ -35,53 +88,11 @@ plugins:
       buildkite-gha-source-ref: latest
 ```
 
-`latest` resolves `buildkite/buildkite-gha` `main` once, logs its full commit, and runs that immutable commit with `mise --no-config` and Go 1.26.5. Use the logged lowercase 40-character commit instead of `latest` for reproducible retries. Other refs are rejected, and `buildkite-gha-source-ref` cannot be combined with `version`.
+`latest` resolves `buildkite/buildkite-gha` `main` once, logs its full commit, and runs that immutable commit with `mise --no-config` and Go 1.26.5. Use the logged full commit instead of `latest` for reproducible retries. Other refs are rejected.
 
-The mise plugin requires a repository mise config. Source mode is only for unreleased integration testing; it does not test release archives, checksums, or caching. Normal released mode remains unchanged and does not require importer-side mise.
+The mise plugin requires a repository mise config. Source mode does not test release archives, checksums, or caching; normal released mode remains unchanged.
 
-## Private repositories
-
-By default the generated `actions/checkout` step performs a credential-free, shallow checkout, so the workflow repository must be public. Set `private-checkout` to opt verified checkout jobs into read-only authority for the pipeline's exact GitHub repository:
-
-```yaml
-steps:
-  - label: ":github: GitHub Actions"
-    key: "github-actions"
-    plugins:
-      - github-actions#v0.4.4:
-          workflow: .github/workflows/ci.yml
-          private-checkout: true
-```
-
-This requires the organization to have Buildkite's job-bound GitHub scoped access-token service enabled, and fails closed when minting is unavailable or disabled. The CLI requests fixed `contents:read` authority from the current-job Agent endpoint; the service independently requires the event repository to be the pipeline's exact GitHub repository. The credential is redacted before use and supplied only to the Git fetch through a one-shot askpass pipe.
-
-The option is confined to the checkout adapter. It does not populate `GITHUB_TOKEN` or `github.token`, grant write access, enable private actions, or permit alternate repositories or refs. Any value other than `true` or `false` is rejected rather than resolved to a default.
-
-## Requirements and security boundary
-
-Only Linux x86-64 (`x86_64`/`amd64`) importer agents are supported. The plugin does not install mise; compatible CLI releases do not require it during import, while the explicit source mode requires the importer to provide it. CLI releases are fetched without a GitHub token from the hard-coded public `buildkite/buildkite-gha` repository. The release archive is cached, but every job fetches its upstream checksum, verifies a private archive copy and fixed CLI-only layout, then executes a job-private extraction. On Buildkite hosted agents, the CLI release archive uses the attached cache volume when available, then the agent data path or standard user cache directories. The hosted runtime queue is selected by the plugin and cannot be configured.
-
-For hosted agents, request the plugin's dedicated cache volume on the importer step:
-
-```yaml
-steps:
-  - label: ":github: GitHub Actions"
-    key: "github-actions"
-    cache: "/cache/bkcache/github-actions-buildkite-plugin"
-    plugins:
-      - github-actions#v0.4.4:
-          workflow: .github/workflows/ci.yml
-```
-
-When `/cache/bkcache` is attached and writable, the plugin automatically uses `/cache/bkcache/github-actions-buildkite-plugin` for its verified CLI archive. The cache is best-effort: a missing or unavailable hosted cache falls back to the normal agent/user cache or a temporary directory, and a cache write failure does not prevent a downloaded CLI from running. Cache contents are never trusted as authority; cached CLI archives retain upstream checksum, archive layout, and extracted version checks on every use. A miss therefore changes performance, not correctness.
-
-For generated jobs that contain GitHub Actions, the runtime accepts mise 2026.5.12 or newer from trusted `PATH` or an explicit absolute `BUILDKITE_GHA_MISE` (including current mise 2026.8.1). If `PATH` has no mise or reports an older or malformed version, the runtime downloads the pinned official mise 2026.5.12 archive into the hosted cache and verifies both the managed archive and executable with embedded SHA-256 digests. Managed cache bytes are hash-checked without execution, copied through an open file descriptor into a job-private directory, and reverified there; only the private copy is executed. An invalid explicit `BUILDKITE_GHA_MISE` fails instead of falling back. The managed fallback remains pinned rather than following mutable `latest`. The plugin does not install or transport mise to generated jobs, and runtime agents do not need to preinstall it. Shell-only generated jobs skip mise setup entirely.
-
-JavaScript actions run with exact Node 20.20.2 or 24.18.0 versions installed through mise's pinned core backend with configuration disabled, so the workflow repository's mise configuration cannot change the compatibility runtime. Action-bearing jobs automatically attach a dedicated Buildkite cache volume for mise-managed Node installations; the runtime digest-verifies and directly invokes the exact Node executable, reinstalling a mismatched cache entry before use. Cache misses remain correct, and shell-only jobs do not attach this runtime cache. Official mise Node binaries require glibc 2.28 or newer; shell-only workflows and the static `buildkite-gha` CLI do not.
-
-The CLI translates and uploads the workflow; this plugin does not add a control plane or rewrite action inputs. GitHub Actions `on:` does not configure Buildkite triggers, and protected capabilities are not yet provided. Configure triggers on the Buildkite pipeline and specify the workflow file directly.
-
-See [DEVELOPMENT.md](DEVELOPMENT.md) for local tests and the test-only cache override.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for testing and release instructions.
 
 ## License
 
