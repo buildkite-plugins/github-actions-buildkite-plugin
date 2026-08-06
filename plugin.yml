@@ -21,7 +21,7 @@ configuration:
       description: Path to the GitHub Actions workflow to upload.
     version:
       type: string
-      default: "0.3.0"
+      default: "0.4.0"
       description: Exact pre-1.0 buildkite-gha CLI version.
   required:
     - workflow
