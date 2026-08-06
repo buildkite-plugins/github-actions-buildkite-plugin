@@ -8,7 +8,7 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "${PLUGIN_ROOT}/lib/install.sh"
 
 workflow="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW:-${BUILDKITE_PLUGIN__WORKFLOW:-}}"
-version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-${BUILDKITE_PLUGIN__VERSION:-0.2.3}}"
+version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-${BUILDKITE_PLUGIN__VERSION:-0.3.0}}"
 
 if [[ -z "$workflow" ]]; then
   echo "github-actions plugin: workflow is required" >&2
