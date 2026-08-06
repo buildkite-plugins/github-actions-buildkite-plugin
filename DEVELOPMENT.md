@@ -20,6 +20,6 @@ For changes to the generated-job runtime contract, publish the compatible
 `buildkite-gha` release first. Update the plugin's CLI default in a separate
 change only after that release exists, then pass the live smoke before tagging
 the plugin. This keeps an unreleased CLI version out of the plugin defaults.
-In particular, the current default CLI v0.3.0 still requires mise on the
+In particular, the current default CLI v0.4.1 still requires mise on the
 importer, so the plugin change that removes importer-side installation must not
 be released with that default.
