@@ -24,18 +24,7 @@ steps:
 
 ## Testing unreleased CLI source
 
-For integration testing, `buildkite-gha-source-ref` builds the CLI from the canonical public repository instead of downloading a release:
-
-```yaml
-plugins:
-  - github-actions#v0.4.4:
-      workflow: .github/workflows/ci.yml
-      buildkite-gha-source-ref: latest
-```
-
-`latest` resolves the `buildkite/buildkite-gha` `main` branch once to a full commit, logs that commit, and builds the immutable result. A retried importer can resolve a newer commit; use the logged full lowercase 40-character commit as the value when reproducible evidence matters. Other branch names, tags, module paths, and URLs are rejected. `buildkite-gha-source-ref` and `version` are mutually exclusive.
-
-The importer must provide a `mise` executable. For example, a repository with Go 1.26.5 in its mise config can put the pinned mise plugin before this plugin:
+For integration testing, `buildkite-gha-source-ref` runs the CLI from the canonical public repository instead of downloading a release. The importer must provide mise; for example:
 
 ```yaml
 plugins:
@@ -46,7 +35,9 @@ plugins:
       buildkite-gha-source-ref: latest
 ```
 
-The mise plugin requires `mise.toml`, `.mise.toml`, or `.tool-versions` in the repository; it does not bootstrap from plugin configuration alone. Source mode then uses `mise --no-config` with pinned Go 1.26.5, disables CGO and Go's automatic toolchain download, and installs into a job-private temporary directory. It is intended to test unreleased CLI behaviour; it does not exercise release archives, checksums, or the stable release cache. The normal released mode remains the production and release-certification path and does not require importer-side mise.
+`latest` resolves `buildkite/buildkite-gha` `main` once, logs its full commit, and runs that immutable commit with `mise --no-config` and Go 1.26.5. Use the logged lowercase 40-character commit instead of `latest` for reproducible retries. Other refs are rejected, and `buildkite-gha-source-ref` cannot be combined with `version`.
+
+The mise plugin requires a repository mise config. Source mode is only for unreleased integration testing; it does not test release archives, checksums, or caching. Normal released mode remains unchanged and does not require importer-side mise.
 
 ## Private repositories
 

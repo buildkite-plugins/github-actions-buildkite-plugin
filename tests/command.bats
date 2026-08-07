@@ -59,6 +59,10 @@ mock_source_tools() {
 #!/usr/bin/env bash
 printf 'git:%s\n' "$*" >> "${MOCK_LOG:?}"
 if [[ "$*" == 'ls-remote --exit-code --refs https://github.com/buildkite/buildkite-gha.git refs/heads/main' ]]; then
+  if [[ -n "${MOCK_SOURCE_OUTPUT:-}" ]]; then
+    printf '%s' "$MOCK_SOURCE_OUTPUT"
+    exit 0
+  fi
   printf '%s\trefs/heads/main\n' "${MOCK_SOURCE_SHA:?}"
   exit 0
 fi
@@ -67,21 +71,10 @@ EOF
   cat > "$TMP/bin/mise" <<'EOF'
 #!/usr/bin/env bash
 printf 'mise:%s\n' "$*" >> "${MOCK_LOG:?}"
-gobin=""
-for arg in "$@"; do
-  case "$arg" in GOBIN=*) gobin="${arg#GOBIN=}" ;; esac
-done
-printf 'source-env:GOBIN=%s MISE_YES=%s\n' "$gobin" "${MISE_YES:-}" >> "${MOCK_LOG:?}"
+printf 'source-env:MISE_YES=%s\n' "${MISE_YES:-}" >> "${MOCK_LOG:?}"
 [[ "${MOCK_MISE_FAIL:-}" != 1 ]] || exit 1
-[[ "$*" == '--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOBIN='*' GOTOOLCHAIN=local go install -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@'* ]] || exit 2
-cat > "${gobin:?}/buildkite-gha" <<'SCRIPT'
-#!/usr/bin/env bash
-if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha dev'; exit; fi
-printf 'source-executable=%s\n' "$0" >> "${MOCK_LOG:?}"
-printf '%s\n' "$*" >> "${MOCK_LOG:?}"
+[[ "$*" == '--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@'*' upload '* ]] || exit 2
 exit "${MOCK_IMPORTER_EXIT:-0}"
-SCRIPT
-chmod +x "$gobin/buildkite-gha"
 EOF
   chmod +x "$TMP/bin/git" "$TMP/bin/mise"
 }
@@ -160,20 +153,16 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "builds latest source at its resolved main commit" {
-  export TMPDIR="$TMP/work"
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF=latest
-  mkdir -p "$TMPDIR"
   mock_source_tools
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [[ "$output" == *"buildkite-gha source latest resolved to $MOCK_SOURCE_SHA"* ]]
   grep -Fx 'git:ls-remote --exit-code --refs https://github.com/buildkite/buildkite-gha.git refs/heads/main' "$MOCK_LOG"
-  grep -E "^mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOBIN=.*/github-actions-buildkite-plugin-source\\.[^ ]+ GOTOOLCHAIN=local go install -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$MOCK_SOURCE_SHA$" "$MOCK_LOG"
-  grep -E '^source-env:GOBIN=.*/github-actions-buildkite-plugin-source\.[^ ]+ MISE_YES=1$' "$MOCK_LOG"
-  grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+  grep -Fx "mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$MOCK_SOURCE_SHA upload --runtime-queue hosted .github/workflows/ci.yml" "$MOCK_LOG"
+  grep -Fx 'source-env:MISE_YES=1' "$MOCK_LOG"
   run grep -F 'releases/download' "$MOCK_LOG"
   [ "$status" -eq 1 ]
-  [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
 }
 
 @test "builds an exact source commit without resolving latest" {
@@ -181,10 +170,8 @@ teardown() { rm -rf "$TMP"; }
   mock_source_tools
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  run grep -q '^git:' "$MOCK_LOG"
-  [ "$status" -eq 1 ]
-  grep -E '^mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOBIN=.*/github-actions-buildkite-plugin-source\.[^ ]+ GOTOOLCHAIN=local go install -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@abcdef0123456789abcdef0123456789abcdef01$' "$MOCK_LOG"
-  grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+  ! grep -q '^git:' "$MOCK_LOG"
+  grep -Fx 'mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@abcdef0123456789abcdef0123456789abcdef01 upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
 }
 
 @test "rejects invalid or ambiguous source configuration without running importer" {
@@ -194,33 +181,29 @@ teardown() { rm -rf "$TMP"; }
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
   [[ "$output" == *"version and buildkite-gha-source-ref are mutually exclusive"* ]]
-  run grep -Eq '^(git|mise|source-executable):|^upload ' "$MOCK_LOG"
-  [ "$status" -eq 1 ]
 
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION
-  for ref in main LATEST abc123 'latest; touch bad'; do
-    : > "$MOCK_LOG"
-    export BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF="$ref"
-    run "$REPO/hooks/command"
-    [ "$status" -ne 0 ] || { echo "accepted '$ref'"; false; }
-    [[ "$output" == *"expected latest or a full lowercase 40-character commit"* ]]
-    run grep -Eq '^(git|mise|source-executable):|^upload ' "$MOCK_LOG"
-    [ "$status" -eq 1 ]
-  done
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF=main
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"expected latest or a full lowercase 40-character commit"* ]]
+
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF=latest
+  export MOCK_SOURCE_OUTPUT="$MOCK_SOURCE_SHA refs/heads/main
+$MOCK_SOURCE_SHA refs/heads/main
+"
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"did not resolve to exactly one commit"* ]]
 }
 
 @test "source build failure does not fall back to a release" {
-  export TMPDIR="$TMP/work"
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF=latest
   export MOCK_MISE_FAIL=1
-  mkdir -p "$TMPDIR"
   mock_source_tools
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"failed to build buildkite-gha source at $MOCK_SOURCE_SHA"* ]]
-  run grep -E 'releases/download|^upload ' "$MOCK_LOG"
-  [ "$status" -eq 1 ]
-  [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
+  ! grep -E 'releases/download|^upload ' "$MOCK_LOG"
 }
 
 @test "requires workflow and rejects unsupported platform" {

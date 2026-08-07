@@ -12,9 +12,8 @@ steps:
           files:
             - hooks/*
             - lib/*
-  - label: ":pipeline: Load live released plugin smoke"
+  - label: ":pipeline: Load live plugin smoke"
     key: "live-plugin-smoke-loader"
-    if: build.env("GITHUB_ACTIONS_SOURCE_REF") == null
     agents:
       queue: "hosted"
     timeout_in_minutes: 15
@@ -23,41 +22,26 @@ steps:
     command: |
       set -euo pipefail
       commit="$${BUILDKITE_COMMIT:?BUILDKITE_COMMIT is required}"
+      source_ref="$${GITHUB_ACTIONS_SOURCE_REF:-}"
       [[ "$$commit" =~ ^[0-9a-f]{40}$$ ]]
-      cat <<YAML | buildkite-agent pipeline upload
+      plugin_config=(
+        "      - github-actions#$$commit:"
+        "          workflow: .github/workflows/plugin-smoke.yml"
+      )
+      if [[ -n "$$source_ref" ]]; then
+        [[ "$$source_ref" == latest || "$$source_ref" =~ ^[0-9a-f]{40}$$ ]]
+        plugin_config=(
+          '      - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:'
+          '          version: "2026.5.12"'
+          "$${plugin_config[@]}"
+          "          buildkite-gha-source-ref: \"$$source_ref\""
+        )
+      fi
+      {
+        cat <<YAML
       steps:
-        - label: ":github: Live released plugin smoke"
+        - label: ":github: Live plugin smoke"
           key: "live-plugin-smoke-importer"
-          agents:
-            queue: "hosted"
-          timeout_in_minutes: 15
-          retry:
-            automatic: false
-          env:
-            BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
-          plugins:
-            - github-actions#$$commit:
-                workflow: .github/workflows/plugin-smoke.yml
-      YAML
-
-  - label: ":pipeline: Load live source plugin smoke"
-    key: "live-source-plugin-smoke-loader"
-    if: build.env("GITHUB_ACTIONS_SOURCE_REF") != null
-    agents:
-      queue: "hosted"
-    timeout_in_minutes: 15
-    retry:
-      automatic: false
-    command: |
-      set -euo pipefail
-      commit="$${BUILDKITE_COMMIT:?BUILDKITE_COMMIT is required}"
-      source_ref="$${GITHUB_ACTIONS_SOURCE_REF:?GITHUB_ACTIONS_SOURCE_REF is required}"
-      [[ "$$commit" =~ ^[0-9a-f]{40}$$ ]]
-      [[ "$$source_ref" == latest || "$$source_ref" =~ ^[0-9a-f]{40}$$ ]]
-      cat <<YAML | buildkite-agent pipeline upload
-      steps:
-        - label: ":github: Live source plugin smoke"
-          key: "live-source-plugin-smoke-importer"
           agents:
             queue: "hosted"
           timeout_in_minutes: 20
@@ -66,9 +50,6 @@ steps:
           env:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
           plugins:
-            - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:
-                version: "2026.5.12"
-            - github-actions#$$commit:
-                workflow: .github/workflows/plugin-smoke.yml
-                buildkite-gha-source-ref: "$$source_ref"
       YAML
+        printf '%s\n' "$${plugin_config[@]}"
+      } | buildkite-agent pipeline upload

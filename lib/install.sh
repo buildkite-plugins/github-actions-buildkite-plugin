@@ -15,62 +15,6 @@ gha_version() {
   printf '%s\n' "$value"
 }
 
-gha_source_ref() {
-  local raw="$1" matches resolved
-  if [[ "$raw" == latest ]]; then
-    gha_require git || return 1
-    matches="$(git ls-remote --exit-code --refs https://github.com/buildkite/buildkite-gha.git refs/heads/main 2>/dev/null)" || {
-      gha_error "failed to resolve buildkite-gha source latest"
-      return 1
-    }
-    resolved="$(printf '%s\n' "$matches" | awk '$2 == "refs/heads/main" && length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 }')"
-    [[ "$(printf '%s\n' "$resolved" | grep -c .)" -eq 1 ]] || {
-      gha_error "buildkite-gha source latest did not resolve to exactly one commit"
-      return 1
-    }
-    echo "github-actions plugin: buildkite-gha source latest resolved to $resolved" >&2
-    printf '%s\n' "$resolved"
-    return
-  fi
-  if [[ ! "$raw" =~ ^[0-9a-f]{40}$ ]]; then
-    gha_error "invalid buildkite-gha source ref '$raw'; expected latest or a full lowercase 40-character commit"
-    return 1
-  fi
-  printf '%s\n' "$raw"
-}
-
-install_buildkite_gha_source() (
-  local raw="$1" ref run binary output
-  ref="$(gha_source_ref "$raw")" || return 1
-  gha_require mise || return 1
-  gha_require mktemp || return 1
-  run="$(mktemp -d "${TMPDIR:-/tmp}/github-actions-buildkite-plugin-source.XXXXXX")" || return 1
-  trap 'rm -rf -- "$run"' EXIT
-  binary="$run/buildkite-gha"
-  echo "github-actions plugin: building buildkite-gha source at $ref with Go 1.26.5" >&2
-  if ! MISE_YES=1 \
-    mise --no-config x go@1.26.5 -- \
-    env CGO_ENABLED=0 GOBIN="$run" GOTOOLCHAIN=local \
-    go install -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${ref}" >&2; then
-    gha_error "failed to build buildkite-gha source at $ref"
-    return 1
-  fi
-  if [[ ! -f "$binary" || -L "$binary" || ! -x "$binary" ]]; then
-    gha_error "buildkite-gha source build did not produce a private executable"
-    return 1
-  fi
-  output="$("$binary" --version 2>/dev/null)" || {
-    gha_error "built buildkite-gha source failed its version check"
-    return 1
-  }
-  if [[ "$output" != buildkite-gha\ * ]]; then
-    gha_error "built buildkite-gha source reports an unexpected version: $output"
-    return 1
-  fi
-  trap - EXIT
-  printf '%s\n' "$run"
-)
-
 gha_cache_root() {
   local hosted_root root
   if [[ -n "${BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT:-}" ]]; then
