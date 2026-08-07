@@ -23,6 +23,10 @@ configuration:
       type: string
       default: "0.4.2"
       description: Exact pre-1.0 buildkite-gha CLI version.
+    buildkite-gha-source-ref:
+      type: string
+      pattern: "^(latest|[0-9a-f]{40})$"
+      description: Build buildkite-gha from the latest main commit or an exact full commit using config-free mise and pinned Go. Mutually exclusive with version.
     private-checkout:
       type: boolean
       default: false
