@@ -28,7 +28,7 @@ For integration testing, `buildkite-gha-source-ref` builds the CLI from the cano
 
 ```yaml
 plugins:
-  - github-actions#<plugin-ref>:
+  - github-actions#v0.4.4:
       workflow: .github/workflows/ci.yml
       buildkite-gha-source-ref: latest
 ```
@@ -41,7 +41,7 @@ The importer must provide a `mise` executable. For example, a repository with Go
 plugins:
   - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:
       version: "2026.5.12"
-  - github-actions#<plugin-ref>:
+  - github-actions#v0.4.4:
       workflow: .github/workflows/ci.yml
       buildkite-gha-source-ref: latest
 ```
