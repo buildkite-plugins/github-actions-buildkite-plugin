@@ -22,6 +22,32 @@ steps:
           version: 0.4.2
 ```
 
+## Testing unreleased CLI source
+
+For integration testing, `buildkite-gha-source-ref` builds the CLI from the canonical public repository instead of downloading a release:
+
+```yaml
+plugins:
+  - github-actions#<plugin-ref>:
+      workflow: .github/workflows/ci.yml
+      buildkite-gha-source-ref: latest
+```
+
+`latest` resolves the `buildkite/buildkite-gha` `main` branch once to a full commit, logs that commit, and builds the immutable result. A retried importer can resolve a newer commit; use the logged full lowercase 40-character commit as the value when reproducible evidence matters. Other branch names, tags, module paths, and URLs are rejected. `buildkite-gha-source-ref` and `version` are mutually exclusive.
+
+The importer must provide a `mise` executable. For example, a repository with Go 1.26.5 in its mise config can put the pinned mise plugin before this plugin:
+
+```yaml
+plugins:
+  - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:
+      version: "2026.5.12"
+  - github-actions#<plugin-ref>:
+      workflow: .github/workflows/ci.yml
+      buildkite-gha-source-ref: latest
+```
+
+The mise plugin requires `mise.toml`, `.mise.toml`, or `.tool-versions` in the repository; it does not bootstrap from plugin configuration alone. Source mode then uses `mise --no-config` with pinned Go 1.26.5, disables CGO and Go's automatic toolchain download, and installs into a job-private temporary directory. It is intended to test unreleased CLI behaviour; it does not exercise release archives, checksums, or the stable release cache. The normal released mode remains the production and release-certification path and does not require importer-side mise.
+
 ## Private repositories
 
 By default the generated `actions/checkout` step performs a credential-free, shallow checkout, so the workflow repository must be public. Set `private-checkout` to opt verified checkout jobs into read-only authority for the pipeline's exact GitHub repository:
@@ -42,7 +68,7 @@ The option is confined to the checkout adapter. It does not populate `GITHUB_TOK
 
 ## Requirements and security boundary
 
-Only Linux x86-64 (`x86_64`/`amd64`) importer agents are supported. The plugin does not install mise; compatible CLI releases do not require it during import. CLI releases are fetched without a GitHub token from the hard-coded public `buildkite/buildkite-gha` repository. The release archive is cached, but every job fetches its upstream checksum, verifies a private archive copy and fixed CLI-only layout, then executes a job-private extraction. On Buildkite hosted agents, the CLI release archive uses the attached cache volume when available, then the agent data path or standard user cache directories. The hosted runtime queue is selected by the plugin and cannot be configured.
+Only Linux x86-64 (`x86_64`/`amd64`) importer agents are supported. The plugin does not install mise; compatible CLI releases do not require it during import, while the explicit source mode requires the importer to provide it. CLI releases are fetched without a GitHub token from the hard-coded public `buildkite/buildkite-gha` repository. The release archive is cached, but every job fetches its upstream checksum, verifies a private archive copy and fixed CLI-only layout, then executes a job-private extraction. On Buildkite hosted agents, the CLI release archive uses the attached cache volume when available, then the agent data path or standard user cache directories. The hosted runtime queue is selected by the plugin and cannot be configured.
 
 For hosted agents, request the plugin's dedicated cache volume on the importer step:
 

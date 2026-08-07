@@ -8,7 +8,8 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "${PLUGIN_ROOT}/lib/install.sh"
 
 workflow="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW:-${BUILDKITE_PLUGIN__WORKFLOW:-}}"
-version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-${BUILDKITE_PLUGIN__VERSION:-0.4.2}}"
+configured_version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-${BUILDKITE_PLUGIN__VERSION:-}}"
+source_ref="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF:-${BUILDKITE_PLUGIN__BUILDKITE_GHA_SOURCE_REF:-}}"
 private_checkout="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT:-${BUILDKITE_PLUGIN__PRIVATE_CHECKOUT:-false}}"
 
 if [[ -z "$workflow" ]]; then
@@ -25,6 +26,10 @@ case "$private_checkout" in
   true|false) ;;
   *) echo "github-actions plugin: private-checkout must be true or false" >&2; exit 1 ;;
 esac
+if [[ -n "$source_ref" && -n "$configured_version" ]]; then
+  echo "github-actions plugin: version and buildkite-gha-source-ref are mutually exclusive" >&2
+  exit 1
+fi
 
 case "$(uname -s)" in
   Linux) ;;
@@ -43,6 +48,11 @@ if [[ "$private_checkout" == true ]]; then
 fi
 upload_args+=(--runtime-queue hosted "$workflow")
 
-distribution="$(install_buildkite_gha "$version")"
-trap 'rm -rf "$distribution"' EXIT
+distribution=""
+trap '[[ -z "${distribution:-}" ]] || rm -rf -- "$distribution"' EXIT
+if [[ -n "$source_ref" ]]; then
+  distribution="$(install_buildkite_gha_source "$source_ref")"
+else
+  distribution="$(install_buildkite_gha "${configured_version:-0.4.2}")"
+fi
 "${distribution}/buildkite-gha" "${upload_args[@]}"
