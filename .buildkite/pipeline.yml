@@ -41,7 +41,7 @@ steps:
 
   - label: ":pipeline: Load live source plugin smoke"
     key: "live-source-plugin-smoke-loader"
-    if: build.env("BUILDKITE_GHA_SOURCE_REF") != null
+    if: build.env("GITHUB_ACTIONS_SOURCE_REF") != null
     agents:
       queue: "hosted"
     timeout_in_minutes: 15
@@ -50,7 +50,7 @@ steps:
     command: |
       set -euo pipefail
       commit="$${BUILDKITE_COMMIT:?BUILDKITE_COMMIT is required}"
-      source_ref="$${BUILDKITE_GHA_SOURCE_REF:?BUILDKITE_GHA_SOURCE_REF is required}"
+      source_ref="$${GITHUB_ACTIONS_SOURCE_REF:?GITHUB_ACTIONS_SOURCE_REF is required}"
       [[ "$$commit" =~ ^[0-9a-f]{40}$$ ]]
       [[ "$$source_ref" == latest || "$$source_ref" =~ ^[0-9a-f]{40}$$ ]]
       cat <<YAML | buildkite-agent pipeline upload
