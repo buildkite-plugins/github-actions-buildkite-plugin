@@ -69,6 +69,44 @@ teardown() { rm -rf "$TMP"; }
   [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
 }
 
+@test "opts into private checkout only when explicitly enabled" {
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT=true
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx 'upload --private-checkout --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+
+  : > "$MOCK_LOG"
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT=false
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+
+  : > "$MOCK_LOG"
+  unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+
+  # An empty value falls back to the unprivileged default, as `version` does.
+  : > "$MOCK_LOG"
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT=
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+}
+
+@test "rejects a non-boolean private-checkout without running importer" {
+  for value in yes 1 TRUE ' true' '--event-path'; do
+    : > "$MOCK_LOG"
+    export BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT="$value"
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ] || { echo "accepted '$value'"; false; }
+    [[ "$output" == *"private-checkout must be true or false"* ]]
+    run grep -q '^upload ' "$MOCK_LOG"
+    [ "$status" -eq 1 ]
+  done
+}
+
 @test "preserves the workflow group label for the importer" {
   export BUILDKITE_GROUP_LABEL="GitHub Actions / checks"
   run "$REPO/hooks/command"

@@ -4,6 +4,8 @@ Run `bats tests`, `shellcheck hooks/* lib/*`, and the Buildkite plugin linter be
 
 The Buildkite pipeline also runs a live service-free smoke test. Its importer pins this plugin to the build's exact `BUILDKITE_COMMIT`, omits the optional CLI `version`, downloads and verifies the real public CLI `v0.4.2` release, and uploads `.github/workflows/plugin-smoke.yml`. The generated hosted job anonymously checks out the same public commit and verifies the release-candidate defaults. This lane requires a full 40-character public GitHub commit and Linux x86-64 Hosted Agents; it does not require secrets, provider tokens, GHAC minting, or a cache service. Cache-service proof remains a separate extension in the `buildkite/buildkite-gha` demo pipeline.
 
+The smoke lane deliberately leaves `private-checkout` unset, so it stays service-free. The option's argument wiring is covered by Bats; its runtime behaviour depends on GHAC minting and is proven in the `buildkite/buildkite-gha` repository rather than here.
+
 `BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT` overrides the cache root for isolated tests only. It does not change the hard-coded release repository, asset names, or verification policy and is not a supported plugin setting.
 
 ## Release
