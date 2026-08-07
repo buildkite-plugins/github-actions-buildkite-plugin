@@ -14,6 +14,7 @@ steps:
             - lib/*
   - label: ":pipeline: Load live released plugin smoke"
     key: "live-plugin-smoke-loader"
+    if: build.env("GITHUB_ACTIONS_SOURCE_REF") == null
     agents:
       queue: "hosted"
     timeout_in_minutes: 15
