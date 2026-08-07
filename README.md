@@ -7,7 +7,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.4.2:
+      - github-actions#v0.4.3:
           workflow: .github/workflows/ci.yml
 ```
 
@@ -17,7 +17,7 @@ The command step must define a `key`, which the importer uses to make generated 
 steps:
   - key: "github-actions"
     plugins:
-      - github-actions#v0.4.2:
+      - github-actions#v0.4.3:
           workflow: .github/workflows/ci.yml
           version: 0.4.2
 ```
@@ -57,7 +57,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.4.2:
+      - github-actions#v0.4.3:
           workflow: .github/workflows/ci.yml
           private-checkout: true
 ```
@@ -78,7 +78,7 @@ steps:
     key: "github-actions"
     cache: "/cache/bkcache/github-actions-buildkite-plugin"
     plugins:
-      - github-actions#v0.4.2:
+      - github-actions#v0.4.3:
           workflow: .github/workflows/ci.yml
 ```
 
