@@ -23,6 +23,10 @@ configuration:
       type: string
       default: "0.4.2"
       description: Exact pre-1.0 buildkite-gha CLI version.
+    private-checkout:
+      type: boolean
+      default: false
+      description: Opt verified checkout jobs into read-only authority for the pipeline's exact GitHub repository.
   required:
     - workflow
   additionalProperties: false

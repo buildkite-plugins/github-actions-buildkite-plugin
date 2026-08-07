@@ -9,6 +9,7 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 workflow="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW:-${BUILDKITE_PLUGIN__WORKFLOW:-}}"
 version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-${BUILDKITE_PLUGIN__VERSION:-0.4.2}}"
+private_checkout="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT:-${BUILDKITE_PLUGIN__PRIVATE_CHECKOUT:-false}}"
 
 if [[ -z "$workflow" ]]; then
   echo "github-actions plugin: workflow is required" >&2
@@ -18,6 +19,12 @@ if [[ "$workflow" == -* || "$workflow" == *$'\n'* || "$workflow" == *$'\r'* ]]; 
   echo "github-actions plugin: workflow must be a path, not an option or multiline value" >&2
   exit 1
 fi
+# An unrecognised value must not silently select either behaviour: treating it as
+# false hides the opt-in, and treating it as true would widen authority.
+case "$private_checkout" in
+  true|false) ;;
+  *) echo "github-actions plugin: private-checkout must be true or false" >&2; exit 1 ;;
+esac
 
 case "$(uname -s)" in
   Linux) ;;
@@ -30,6 +37,12 @@ esac
 
 echo "~~~ :github: Prepare workflow"
 
+upload_args=(upload)
+if [[ "$private_checkout" == true ]]; then
+  upload_args+=(--private-checkout)
+fi
+upload_args+=(--runtime-queue hosted "$workflow")
+
 distribution="$(install_buildkite_gha "$version")"
 trap 'rm -rf "$distribution"' EXIT
-"${distribution}/buildkite-gha" upload --runtime-queue hosted "$workflow"
+"${distribution}/buildkite-gha" "${upload_args[@]}"

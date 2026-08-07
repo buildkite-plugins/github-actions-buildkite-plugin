@@ -22,6 +22,24 @@ steps:
           version: 0.4.2
 ```
 
+## Private repositories
+
+By default the generated `actions/checkout` step performs a credential-free, shallow checkout, so the workflow repository must be public. Set `private-checkout` to opt verified checkout jobs into read-only authority for the pipeline's exact GitHub repository:
+
+```yaml
+steps:
+  - label: ":github: GitHub Actions"
+    key: "github-actions"
+    plugins:
+      - github-actions#v0.4.2:
+          workflow: .github/workflows/ci.yml
+          private-checkout: true
+```
+
+This requires the organization to have Buildkite's job-bound GitHub scoped access-token service enabled, and fails closed when minting is unavailable or disabled. The CLI requests fixed `contents:read` authority from the current-job Agent endpoint; the service independently requires the event repository to be the pipeline's exact GitHub repository. The credential is redacted before use and supplied only to the Git fetch through a one-shot askpass pipe.
+
+The option is confined to the checkout adapter. It does not populate `GITHUB_TOKEN` or `github.token`, grant write access, enable private actions, or permit alternate repositories or refs. Any value other than `true` or `false` is rejected rather than resolved to a default.
+
 ## Requirements and security boundary
 
 Only Linux x86-64 (`x86_64`/`amd64`) importer agents are supported. The plugin does not install mise; compatible CLI releases do not require it during import. CLI releases are fetched without a GitHub token from the hard-coded public `buildkite/buildkite-gha` repository. The release archive is cached, but every job fetches its upstream checksum, verifies a private archive copy and fixed CLI-only layout, then executes a job-private extraction. On Buildkite hosted agents, the CLI release archive uses the attached cache volume when available, then the agent data path or standard user cache directories. The hosted runtime queue is selected by the plugin and cannot be configured.
