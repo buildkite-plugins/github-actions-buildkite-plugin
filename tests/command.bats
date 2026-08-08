@@ -10,7 +10,6 @@ setup() {
   export BUILDKITE_COMMIT=1111111111111111111111111111111111111111
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION BUILDKITE_PLUGIN__VERSION
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF BUILDKITE_PLUGIN__BUILDKITE_GHA_SOURCE_REF
-  unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT BUILDKITE_PLUGIN__PRIVATE_CHECKOUT
   unset BUILDKITE_USE_REPOSITORY_PROVIDER_GIT_CREDENTIALS BUILDKITE_USE_GITHUB_APP_GIT_CREDENTIALS
   export MOCK_LOG="$TMP/mock.log"
   mkdir -p "$TMP/bin" "$TMP/payload"
@@ -18,7 +17,7 @@ setup() {
   printf 'license\n' > "$TMP/payload/LICENSE"
   cat > "$TMP/payload/buildkite-gha" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == --version ]]; then echo "buildkite-gha ${MOCK_CLI_VERSION:-0.6.0}"; exit; fi
+if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.6.0'; exit; fi
 printf 'executable=%s\n' "$0" >> "${MOCK_LOG:?}"
 printf 'group=%s\n' "${BUILDKITE_GROUP_LABEL:-}" >> "${MOCK_LOG:?}"
 printf 'path=%s\n' "$PATH" >> "${MOCK_LOG:?}"
@@ -133,47 +132,17 @@ teardown() { rm -rf "$TMP"; }
   ! grep -q '^upload ' "$MOCK_LOG"
 }
 
-@test "ignores the deprecated private-checkout setting" {
-  for value in true false unset; do
-    : > "$MOCK_LOG"
-    if [[ "$value" == unset ]]; then
-      unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT
-    else
-      export BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT="$value"
-    fi
-    run "$REPO/hooks/command"
-    [ "$status" -eq 0 ] || { echo "$output"; false; }
-    grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
-    ! grep -q -- '--private-checkout' "$MOCK_LOG"
-  done
-}
-
-@test "bridges Buildkite repository-provider credential availability to the default CLI" {
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT=false
+@test "repository-provider credential signals do not alter the upload command" {
   for signal in BUILDKITE_USE_REPOSITORY_PROVIDER_GIT_CREDENTIALS BUILDKITE_USE_GITHUB_APP_GIT_CREDENTIALS; do
-    : > "$MOCK_LOG"
-    export "$signal"=true
-    run "$REPO/hooks/command"
-    [ "$status" -eq 0 ] || { echo "$output"; false; }
-    grep -Fx 'upload --private-checkout --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
-    unset "$signal"
-  done
-}
-
-@test "passes the credential bridge only to release CLIs that support it" {
-  export BUILDKITE_USE_REPOSITORY_PROVIDER_GIT_CREDENTIALS=true
-  for version in 0.2.9 0.3.0 0.5.0; do
-    : > "$MOCK_LOG"
-    export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION="$version"
-    export MOCK_CLI_VERSION="$version"
-    run "$REPO/hooks/command"
-    [ "$status" -eq 0 ] || { echo "$output"; false; }
-    if [[ "$version" == 0.2.9 ]]; then
+    for value in true false; do
+      : > "$MOCK_LOG"
+      export "$signal"="$value"
+      run "$REPO/hooks/command"
+      [ "$status" -eq 0 ] || { echo "$output"; false; }
       grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
       ! grep -q -- '--private-checkout' "$MOCK_LOG"
-    else
-      grep -Fx 'upload --private-checkout --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
-    fi
+    done
+    unset "$signal"
   done
 }
 
@@ -210,12 +179,11 @@ teardown() { rm -rf "$TMP"; }
 
 @test "builds an exact source commit without resolving latest" {
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF=abcdef0123456789abcdef0123456789abcdef01
-  export BUILDKITE_USE_REPOSITORY_PROVIDER_GIT_CREDENTIALS=true
   mock_source_tools
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   ! grep -q '^git:' "$MOCK_LOG"
-  grep -Fx 'mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@abcdef0123456789abcdef0123456789abcdef01 upload --private-checkout --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+  grep -Fx 'mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@abcdef0123456789abcdef0123456789abcdef01 upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
 }
 
 @test "rejects invalid or ambiguous source configuration without running importer" {

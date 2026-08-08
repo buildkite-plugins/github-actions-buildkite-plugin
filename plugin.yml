@@ -27,10 +27,6 @@ configuration:
       type: string
       pattern: "^(latest|[0-9a-f]{40})$"
       description: Build buildkite-gha from the latest main commit or an exact full commit using config-free mise and pinned Go. Mutually exclusive with version.
-    private-checkout:
-      type: boolean
-      default: false
-      description: Deprecated compatibility setting. Ignored; verified checkout jobs use Buildkite's repository-provider credential availability automatically.
   required:
     - workflow
   additionalProperties: false

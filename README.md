@@ -25,7 +25,7 @@ The importer step must have a `key`. Each workflow job and static matrix entry b
 
 The plugin release (`github-actions#v0.6.0`) and CLI `version` are independent. Set `version` only when you need a CLI release other than the default. `version` and `buildkite-gha-source-ref` are mutually exclusive.
 
-The deprecated `private-checkout` boolean is accepted for compatibility but ignored. Remove it from pipeline configuration. For CLI releases from v0.3.0 onward, the plugin derives the legacy checkout flag only from Buildkite's credential-availability signals; older releases do not support the flag. These signals indicate availability only; they do not grant authorization. The repository-provider backend remains authoritative for whether credentials are issued for each concrete repository URL. Workflow permissions remain separate: this mechanism does not populate `GITHUB_TOKEN` or `github.token`, enable private actions, or permit alternate repositories or refs.
+Repository checkout behavior is owned by `buildkite-gha` and Buildkite's repository-provider backend. Workflow permissions remain separate: checkout credentials do not populate `GITHUB_TOKEN` or `github.token`, enable private actions, or permit alternate repositories or refs.
 
 ## Compatibility
 
@@ -71,7 +71,7 @@ plugins:
       buildkite-gha-source-ref: latest
 ```
 
-`latest` resolves `buildkite/buildkite-gha` `main` once, logs its full commit, and runs that immutable commit with `mise --no-config` and Go 1.26.5. Use the logged full commit instead of `latest` for reproducible retries. Other refs are rejected. Source mode passes the checkout compatibility flag through whenever Buildkite reports repository-provider credentials; exact unreleased commits must accept that interface.
+`latest` resolves `buildkite/buildkite-gha` `main` once, logs its full commit, and runs that immutable commit with `mise --no-config` and Go 1.26.5. Use the logged full commit instead of `latest` for reproducible retries. Other refs are rejected.
 
 The mise plugin requires a repository mise config. Source mode does not test release archives, checksums, or caching; normal released mode remains unchanged.
 
