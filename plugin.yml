@@ -30,7 +30,7 @@ configuration:
     private-checkout:
       type: boolean
       default: false
-      description: Opt verified checkout jobs into read-only authority for the pipeline's exact GitHub repository.
+      description: Deprecated compatibility setting. Ignored; verified checkout jobs use Buildkite's repository-provider credential availability automatically.
   required:
     - workflow
   additionalProperties: false
