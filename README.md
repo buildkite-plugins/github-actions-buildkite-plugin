@@ -9,7 +9,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.5.0:
+      - github-actions#v0.5.1:
           workflow: .github/workflows/ci.yml
 ```
 
@@ -24,7 +24,7 @@ The importer step must have a `key`. Each workflow job and static matrix entry b
 | `buildkite-gha-source-ref` | No | — | `latest` or a full lowercase commit for unreleased CLI testing. |
 | `private-checkout` | No | `false` | Enable read-only checkout of the pipeline's private GitHub repository. |
 
-The plugin release (`github-actions#v0.5.0`) and CLI `version` are independent. Set `version` only when you need a CLI release other than the default. `version` and `buildkite-gha-source-ref` are mutually exclusive.
+The plugin release (`github-actions#v0.5.1`) and CLI `version` are independent. Set `version` only when you need a CLI release other than the default. `version` and `buildkite-gha-source-ref` are mutually exclusive.
 
 ## Compatibility
 
@@ -50,7 +50,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.5.0:
+      - github-actions#v0.5.1:
           workflow: .github/workflows/ci.yml
           private-checkout: true
 ```
@@ -69,7 +69,7 @@ steps:
     key: "github-actions"
     cache: "/cache/bkcache/github-actions-buildkite-plugin"
     plugins:
-      - github-actions#v0.5.0:
+      - github-actions#v0.5.1:
           workflow: .github/workflows/ci.yml
 ```
 
@@ -83,7 +83,7 @@ For integration testing, `buildkite-gha-source-ref` runs the CLI from the canoni
 plugins:
   - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:
       version: "2026.5.12"
-  - github-actions#v0.5.0:
+  - github-actions#v0.5.1:
       workflow: .github/workflows/ci.yml
       buildkite-gha-source-ref: latest
 ```
