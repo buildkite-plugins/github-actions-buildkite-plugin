@@ -86,7 +86,7 @@ if [[ -n "$source_ref" ]]; then
     go run -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${resolved_source_ref}" \
     "${upload_args[@]}"
 else
-  distribution="$(install_buildkite_gha "${configured_version:-0.5.0}")"
+  distribution="$(install_buildkite_gha "${configured_version:-0.6.0}")"
   trap 'rm -rf -- "$distribution"' EXIT
   "${distribution}/buildkite-gha" "${upload_args[@]}"
 fi

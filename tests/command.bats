@@ -16,7 +16,7 @@ setup() {
   printf 'license\n' > "$TMP/payload/LICENSE"
   cat > "$TMP/payload/buildkite-gha" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.5.0'; exit; fi
+if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.6.0'; exit; fi
 printf 'executable=%s\n' "$0" >> "${MOCK_LOG:?}"
 printf 'group=%s\n' "${BUILDKITE_GROUP_LABEL:-}" >> "${MOCK_LOG:?}"
 printf 'path=%s\n' "$PATH" >> "${MOCK_LOG:?}"
@@ -95,8 +95,8 @@ teardown() { rm -rf "$TMP"; }
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
-  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.5.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
-  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.5.0/checksums.txt' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.6.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.6.0/checksums.txt' "$MOCK_LOG"
   grep -Fx "path=$EXPECTED_PATH" "$MOCK_LOG"
   [ "$output" = "~~~ :github: Prepare workflow" ]
   run grep -F 'github.com/jdx/mise' "$MOCK_LOG"
@@ -177,7 +177,7 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "accepts a leading v and rejects version injection" {
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.5.0
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.6.0
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"
@@ -212,7 +212,7 @@ teardown() { rm -rf "$TMP"; }
 @test "rejects invalid or ambiguous source configuration without running importer" {
   mock_source_tools
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF=latest
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.5.0
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.6.0
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
   [[ "$output" == *"version and buildkite-gha-source-ref are mutually exclusive"* ]]
@@ -277,7 +277,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
   [[ "$output" == *"unexpected, missing, duplicate, or unsafe"* ]] || { echo "$output"; false; }
-  [ ! -e "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.5.0/Linux_x86_64/evil" ]
+  [ ! -e "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.6.0/Linux_x86_64/evil" ]
 
   rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"
   rm "$TMP/payload/buildkite-gha"
@@ -295,7 +295,7 @@ EOF
   : > "$MOCK_LOG"
   run "$REPO/hooks/command"; [ "$status" -eq 0 ]
   [ "$(grep -c '^upload ' "$MOCK_LOG")" -eq 1 ]
-  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.5.0/checksums.txt' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.6.0/checksums.txt' "$MOCK_LOG"
   run grep -q '/buildkite-gha_Linux_x86_64.tar.gz$' "$MOCK_LOG"
   [ "$status" -eq 1 ]
   executable="$(awk -F= '/^executable=/ { print $2 }' "$MOCK_LOG")"
@@ -306,12 +306,12 @@ EOF
 
 @test "replaces a tampered cached archive before execution" {
   run "$REPO/hooks/command"; [ "$status" -eq 0 ]
-  cache="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.5.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz"
+  cache="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.6.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz"
   mkdir "$TMP/tampered"
   printf 'license\n' > "$TMP/tampered/LICENSE"
   cat > "$TMP/tampered/buildkite-gha" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.5.0'; exit; fi
+if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.6.0'; exit; fi
 echo tampered >> "${MOCK_LOG:?}"
 EOF
   chmod +x "$TMP/tampered/buildkite-gha"
@@ -321,7 +321,7 @@ EOF
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   run grep -q '^tampered$' "$MOCK_LOG"
   [ "$status" -eq 1 ]
-  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.5.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.6.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
   [ "$(grep -c '^upload ' "$MOCK_LOG")" -eq 1 ]
 }
 
@@ -343,7 +343,7 @@ EOF
   mkdir -p "$MISE_HOSTED_CACHE_VOLUME_ROOT"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [ -f "$MISE_HOSTED_CACHE_VOLUME_ROOT/github-actions-buildkite-plugin/v0.5.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz" ]
+  [ -f "$MISE_HOSTED_CACHE_VOLUME_ROOT/github-actions-buildkite-plugin/v0.6.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz" ]
   [ ! -e "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin" ]
 }
 
@@ -354,7 +354,7 @@ EOF
   export MISE_HOSTED_CACHE_VOLUME_ROOT="$TMP/not-attached"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [ -f "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin/v0.5.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz" ]
+  [ -f "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin/v0.6.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz" ]
 }
 
 @test "falls back when an explicit test cache override is unavailable" {
@@ -368,10 +368,10 @@ EOF
 @test "continues when the verified CLI archive cannot be cached" {
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.5.0"
+  rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.6.0"
   cat > "$TMP/bin/mktemp" <<'EOF'
 #!/usr/bin/env bash
-if [[ "$*" == *'/v0.5.0/.Linux_x86_64.'* ]]; then exit 1; fi
+if [[ "$*" == *'/v0.6.0/.Linux_x86_64.'* ]]; then exit 1; fi
 exec "${REAL_MKTEMP:?}" "$@"
 EOF
   chmod +x "$TMP/bin/mktemp"
@@ -380,7 +380,7 @@ EOF
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [[ "$output" == *"continuing without caching"* ]]
   grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
-  [ ! -e "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.5.0/Linux_x86_64" ]
+  [ ! -e "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.6.0/Linux_x86_64" ]
 }
 
 @test "downloads after a cached archive copy fails partway" {
@@ -389,7 +389,7 @@ EOF
   cat > "$TMP/bin/cp" <<'EOF'
 #!/usr/bin/env bash
 destination="${!#}"
-if [[ "$*" == *'/cache/v0.5.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz'* ]]; then
+if [[ "$*" == *'/cache/v0.6.0/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz'* ]]; then
   printf 'partial\n' > "$destination"
   exit 1
 fi
@@ -399,7 +399,7 @@ EOF
   : > "$MOCK_LOG"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.5.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.6.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
   grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
 }
 
@@ -408,7 +408,7 @@ EOF
   "$REPO/hooks/command" >"$TMP/second.out" 2>&1 & second=$!
   wait "$first"
   wait "$second"
-  destination="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.5.0/Linux_x86_64"
+  destination="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.6.0/Linux_x86_64"
   [ -L "$destination" ]
   cached_archive="$destination/buildkite-gha_Linux_x86_64.tar.gz"
   [ -f "$cached_archive" ]
