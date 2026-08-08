@@ -9,7 +9,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.6.0:
+      - github-actions#v0.6.1:
           workflow: .github/workflows/ci.yml
 ```
 
@@ -52,7 +52,7 @@ steps:
     key: "github-actions"
     cache: "/cache/bkcache/github-actions-buildkite-plugin"
     plugins:
-      - github-actions#v0.6.0:
+      - github-actions#v0.6.1:
           workflow: .github/workflows/ci.yml
 ```
 
@@ -66,7 +66,7 @@ For integration testing, `buildkite-gha-source-ref` runs the CLI from the canoni
 plugins:
   - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:
       version: "2026.5.12"
-  - github-actions#v0.6.0:
+  - github-actions#v0.6.1:
       workflow: .github/workflows/ci.yml
       buildkite-gha-source-ref: latest
 ```
