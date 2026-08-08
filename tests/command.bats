@@ -95,7 +95,9 @@ teardown() { rm -rf "$TMP"; }
   mkdir -p "$TMPDIR"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+  grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
+  ! grep -q -- '--runtime-queue' "$MOCK_LOG"
+  ! grep -q -- '--private-checkout' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.6.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.6.0/checksums.txt' "$MOCK_LOG"
   grep -Fx "path=$EXPECTED_PATH" "$MOCK_LOG"
@@ -139,7 +141,8 @@ teardown() { rm -rf "$TMP"; }
       export "$signal"="$value"
       run "$REPO/hooks/command"
       [ "$status" -eq 0 ] || { echo "$output"; false; }
-      grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+      grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
+      ! grep -q -- '--runtime-queue' "$MOCK_LOG"
       ! grep -q -- '--private-checkout' "$MOCK_LOG"
     done
     unset "$signal"
@@ -171,7 +174,9 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [[ "$output" == *"buildkite-gha source latest resolved to $MOCK_SOURCE_SHA"* ]]
   grep -Fx 'git:ls-remote --exit-code --refs https://github.com/buildkite/buildkite-gha.git refs/heads/main' "$MOCK_LOG"
-  grep -Fx "mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$MOCK_SOURCE_SHA upload --runtime-queue hosted .github/workflows/ci.yml" "$MOCK_LOG"
+  grep -Fx "mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$MOCK_SOURCE_SHA upload .github/workflows/ci.yml" "$MOCK_LOG"
+  ! grep -q -- '--runtime-queue' "$MOCK_LOG"
+  ! grep -q -- '--private-checkout' "$MOCK_LOG"
   grep -Fx 'source-env:MISE_YES=1' "$MOCK_LOG"
   run grep -F 'releases/download' "$MOCK_LOG"
   [ "$status" -eq 1 ]
@@ -183,7 +188,9 @@ teardown() { rm -rf "$TMP"; }
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   ! grep -q '^git:' "$MOCK_LOG"
-  grep -Fx 'mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@abcdef0123456789abcdef0123456789abcdef01 upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+  grep -Fx 'mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@abcdef0123456789abcdef0123456789abcdef01 upload .github/workflows/ci.yml' "$MOCK_LOG"
+  ! grep -q -- '--runtime-queue' "$MOCK_LOG"
+  ! grep -q -- '--private-checkout' "$MOCK_LOG"
 }
 
 @test "rejects invalid or ambiguous source configuration without running importer" {
@@ -339,7 +346,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [[ "$output" == *"cache '$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT' is unavailable; using a temporary cache"* ]]
-  grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+  grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
 }
 
 @test "continues when the verified CLI archive cannot be cached" {
@@ -356,7 +363,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [[ "$output" == *"continuing without caching"* ]]
-  grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+  grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
   [ ! -e "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.6.0/Linux_x86_64" ]
 }
 
@@ -377,7 +384,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.6.0/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
-  grep -Fx 'upload --runtime-queue hosted .github/workflows/ci.yml' "$MOCK_LOG"
+  grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
 }
 
 @test "concurrent installs converge on one valid cache" {
@@ -391,7 +398,7 @@ EOF
   [ -f "$cached_archive" ]
   expected="$(awk '$2 == "buildkite-gha_Linux_x86_64.tar.gz" { print $1 }' "$TMP/checksums.txt")"
   [ "$(/usr/bin/sha256sum "$cached_archive" | awk '{ print $1 }')" = "$expected" ]
-  [ "$(grep -c '^upload --runtime-queue hosted ' "$MOCK_LOG")" -eq 2 ]
+  [ "$(grep -c '^upload .github/workflows/ci.yml$' "$MOCK_LOG")" -eq 2 ]
 }
 
 @test "propagates importer failure and never runs importer after install failure" {
