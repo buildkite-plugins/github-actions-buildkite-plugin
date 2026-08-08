@@ -7,6 +7,7 @@ setup() {
   export REAL_MKTEMP="$(command -v mktemp)"
   export BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT="$TMP/cache"
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW=".github/workflows/ci.yml"
+  export BUILDKITE_COMMIT=1111111111111111111111111111111111111111
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION BUILDKITE_PLUGIN__VERSION
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF BUILDKITE_PLUGIN__BUILDKITE_GHA_SOURCE_REF
   export MOCK_LOG="$TMP/mock.log"
@@ -19,6 +20,7 @@ if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.5.0'; exit; fi
 printf 'executable=%s\n' "$0" >> "${MOCK_LOG:?}"
 printf 'group=%s\n' "${BUILDKITE_GROUP_LABEL:-}" >> "${MOCK_LOG:?}"
 printf 'path=%s\n' "$PATH" >> "${MOCK_LOG:?}"
+printf 'commit=%s\n' "${BUILDKITE_COMMIT:-}" >> "${MOCK_LOG:?}"
 printf '%s\n' "$*" >> "${MOCK_LOG:?}"
 exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
@@ -43,6 +45,25 @@ case "$url" in
 esac
 EOF
   chmod +x "$TMP/bin/curl"
+  cat > "$TMP/bin/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'git:%s\n' "$*" >> "${MOCK_LOG:?}"
+if [[ "$*" == 'rev-parse --verify HEAD^{commit}' ]]; then
+  [[ "${MOCK_CHECKOUT_FAIL:-}" != 1 ]] || exit 1
+  printf '%s\n' "${MOCK_CHECKOUT_SHA:-2222222222222222222222222222222222222222}"
+  exit 0
+fi
+if [[ "$*" == 'ls-remote --exit-code --refs https://github.com/buildkite/buildkite-gha.git refs/heads/main' ]]; then
+  if [[ -n "${MOCK_SOURCE_OUTPUT:-}" ]]; then
+    printf '%s' "$MOCK_SOURCE_OUTPUT"
+    exit 0
+  fi
+  printf '%s\trefs/heads/main\n' "${MOCK_SOURCE_SHA:?}"
+  exit 0
+fi
+exit 2
+EOF
+  chmod +x "$TMP/bin/git"
   export MOCK_ARCHIVE="$TMP/release.tar.gz" MOCK_CHECKSUMS="$TMP/checksums.txt"
   export PATH="$TMP/bin:$PATH"
   export EXPECTED_PATH="$PATH"
@@ -55,19 +76,6 @@ make_release() {
 
 mock_source_tools() {
   export MOCK_SOURCE_SHA=0123456789abcdef0123456789abcdef01234567
-  cat > "$TMP/bin/git" <<'EOF'
-#!/usr/bin/env bash
-printf 'git:%s\n' "$*" >> "${MOCK_LOG:?}"
-if [[ "$*" == 'ls-remote --exit-code --refs https://github.com/buildkite/buildkite-gha.git refs/heads/main' ]]; then
-  if [[ -n "${MOCK_SOURCE_OUTPUT:-}" ]]; then
-    printf '%s' "$MOCK_SOURCE_OUTPUT"
-    exit 0
-  fi
-  printf '%s\trefs/heads/main\n' "${MOCK_SOURCE_SHA:?}"
-  exit 0
-fi
-exit 2
-EOF
   cat > "$TMP/bin/mise" <<'EOF'
 #!/usr/bin/env bash
 printf 'mise:%s\n' "$*" >> "${MOCK_LOG:?}"
@@ -76,7 +84,7 @@ printf 'source-env:MISE_YES=%s\n' "${MISE_YES:-}" >> "${MOCK_LOG:?}"
 [[ "$*" == '--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@'*' upload '* ]] || exit 2
 exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
-  chmod +x "$TMP/bin/git" "$TMP/bin/mise"
+  chmod +x "$TMP/bin/mise"
 }
 
 teardown() { rm -rf "$TMP"; }
@@ -94,6 +102,33 @@ teardown() { rm -rf "$TMP"; }
   run grep -F 'github.com/jdx/mise' "$MOCK_LOG"
   [ "$status" -eq 1 ]
   [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
+}
+
+@test "resolves a symbolic Buildkite commit to the checked-out commit" {
+  export BUILDKITE_COMMIT=HEAD
+  export MOCK_CHECKOUT_SHA=abcdef0123456789abcdef0123456789abcdef01
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx 'git:rev-parse --verify HEAD^{commit}' "$MOCK_LOG"
+  grep -Fx "commit=$MOCK_CHECKOUT_SHA" "$MOCK_LOG"
+}
+
+@test "preserves an existing valid Buildkite commit" {
+  export BUILDKITE_COMMIT=fedcba9876543210fedcba9876543210fedcba98
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx "commit=$BUILDKITE_COMMIT" "$MOCK_LOG"
+  ! grep -q '^git:rev-parse ' "$MOCK_LOG"
+}
+
+@test "fails without invoking importer when the checked-out commit cannot be resolved" {
+  export BUILDKITE_COMMIT=HEAD
+  export MOCK_CHECKOUT_FAIL=1
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"failed to resolve the checked-out commit"* ]]
+  grep -Fx 'git:rev-parse --verify HEAD^{commit}' "$MOCK_LOG"
+  ! grep -q '^upload ' "$MOCK_LOG"
 }
 
 @test "opts into private checkout only when explicitly enabled" {
