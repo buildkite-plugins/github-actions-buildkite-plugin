@@ -10,7 +10,6 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 workflow="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW:-${BUILDKITE_PLUGIN__WORKFLOW:-}}"
 configured_version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-${BUILDKITE_PLUGIN__VERSION:-}}"
 source_ref="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF:-${BUILDKITE_PLUGIN__BUILDKITE_GHA_SOURCE_REF:-}}"
-private_checkout="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_PRIVATE_CHECKOUT:-${BUILDKITE_PLUGIN__PRIVATE_CHECKOUT:-false}}"
 
 if [[ -z "$workflow" ]]; then
   echo "github-actions plugin: workflow is required" >&2
@@ -20,12 +19,6 @@ if [[ "$workflow" == -* || "$workflow" == *$'\n'* || "$workflow" == *$'\r'* ]]; 
   echo "github-actions plugin: workflow must be a path, not an option or multiline value" >&2
   exit 1
 fi
-# An unrecognised value must not silently select either behaviour: treating it as
-# false hides the opt-in, and treating it as true would widen authority.
-case "$private_checkout" in
-  true|false) ;;
-  *) echo "github-actions plugin: private-checkout must be true or false" >&2; exit 1 ;;
-esac
 if [[ -n "$source_ref" && -n "$configured_version" ]]; then
   echo "github-actions plugin: version and buildkite-gha-source-ref are mutually exclusive" >&2
   exit 1
@@ -55,11 +48,7 @@ fi
 
 echo "~~~ :github: Prepare workflow"
 
-upload_args=(upload)
-if [[ "$private_checkout" == true ]]; then
-  upload_args+=(--private-checkout)
-fi
-upload_args+=(--runtime-queue hosted "$workflow")
+upload_args=(upload "$workflow")
 
 if [[ -n "$source_ref" ]]; then
   resolved_source_ref="$source_ref"

@@ -22,9 +22,10 @@ The importer step must have a `key`. Each workflow job and static matrix entry b
 | `workflow` | Yes | — | Path to the GitHub Actions workflow. |
 | `version` | No | `0.6.0` | Exact pre-1.0 `buildkite-gha` CLI version. |
 | `buildkite-gha-source-ref` | No | — | `latest` or a full lowercase commit for unreleased CLI testing. |
-| `private-checkout` | No | `false` | Enable read-only checkout of the pipeline's private GitHub repository. |
 
 The plugin release (`github-actions#v0.6.0`) and CLI `version` are independent. Set `version` only when you need a CLI release other than the default. `version` and `buildkite-gha-source-ref` are mutually exclusive.
+
+Repository checkout behavior is owned by `buildkite-gha` and Buildkite's repository-provider backend. Workflow permissions remain separate: checkout credentials do not populate `GITHUB_TOKEN` or `github.token`, enable private actions, or permit alternate repositories or refs.
 
 ## Compatibility
 
@@ -40,24 +41,6 @@ Key constraints for this plugin are:
 Configure branch, tag, schedule, and pull request triggers in Buildkite. The workflow's `on:` block does not create Buildkite triggers. Pull request builds receive a `pull_request` context; all other Buildkite builds receive `push`.
 
 Released mode downloads the selected public `buildkite/buildkite-gha` release without a GitHub token and does not require importer-side mise. Downloads and cached copies are verified before execution. Generated jobs prepare mise only when their resolved action trees can execute JavaScript; shell-only, native-adapter-only, and Docker-only jobs skip that setup.
-
-## Private repositories
-
-By default, generated `actions/checkout` steps perform a credential-free, shallow checkout, so the workflow repository must be public. Set `private-checkout` to give verified checkout jobs read-only access to the pipeline's exact GitHub repository:
-
-```yaml
-steps:
-  - label: ":github: GitHub Actions"
-    key: "github-actions"
-    plugins:
-      - github-actions#v0.6.0:
-          workflow: .github/workflows/ci.yml
-          private-checkout: true
-```
-
-This requires Buildkite's job-bound GitHub scoped access-token service. The CLI requests fixed `contents:read` authority, and the service independently requires the event repository to match the pipeline's GitHub repository. The credential is redacted before use and supplied only to Git through a one-shot askpass pipe.
-
-This option does not populate `GITHUB_TOKEN` or `github.token`, grant write access, enable private actions, or permit alternate repositories or refs.
 
 ## Caching
 

@@ -22,11 +22,9 @@ The Buildkite pipeline's required released-default smoke test:
 3. Uploads `.github/workflows/plugin-smoke.yml`
 4. Checks out the same commit in a generated hosted job and verifies the release defaults
 
-This lane requires Linux x86-64 Hosted Agents, but no configured secrets, provider tokens, or cache service. Cache integration is tested separately in the `buildkite/buildkite-gha` demo pipeline.
+This lane requires Linux x86-64 Hosted Agents, but no configured secrets or cache service. Cache integration is tested separately in the `buildkite/buildkite-gha` demo pipeline.
 
 Set `GITHUB_ACTIONS_SOURCE_REF` to `latest` or a full lowercase 40-character CLI commit on a manually created Buildkite build to run the optional source smoke instead. This lane uses the repository's `mise.toml` to install pinned mise 2026.5.12 and Go 1.26.5, pins the plugin to the build's exact commit, and exercises `buildkite-gha-source-ref` end to end. Ordinary builds continue to prove the released archive and installation path.
-
-The smoke tests leave `private-checkout` unset so they remain service-free. Bats covers its argument wiring; the `buildkite/buildkite-gha` repository tests its runtime behavior with GHAC minting.
 
 ## Release
 
