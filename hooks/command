@@ -40,6 +40,19 @@ case "$(uname -m)" in
   *) echo "github-actions plugin: unsupported architecture '$(uname -m)'; only Linux x86-64 is supported" >&2; exit 1 ;;
 esac
 
+if [[ ! "${BUILDKITE_COMMIT:-}" =~ ^[0-9a-f]{40}$ ]]; then
+  gha_require git
+  resolved_commit="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || {
+    gha_error "failed to resolve the checked-out commit"
+    exit 1
+  }
+  if [[ ! "$resolved_commit" =~ ^[0-9a-f]{40}$ ]]; then
+    gha_error "checked-out commit did not resolve to a full lowercase 40-character commit"
+    exit 1
+  fi
+  export BUILDKITE_COMMIT="$resolved_commit"
+fi
+
 echo "~~~ :github: Prepare workflow"
 
 upload_args=(upload)
