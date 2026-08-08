@@ -9,7 +9,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.4.4:
+      - github-actions#v0.5.0:
           workflow: .github/workflows/ci.yml
 ```
 
@@ -20,15 +20,15 @@ The importer step must have a `key`. Each workflow job and static matrix entry b
 | Option | Required | Default | Description |
 | --- | --- | --- | --- |
 | `workflow` | Yes | — | Path to the GitHub Actions workflow. |
-| `version` | No | `0.4.2` | Exact pre-1.0 `buildkite-gha` CLI version. |
+| `version` | No | `0.5.0` | Exact pre-1.0 `buildkite-gha` CLI version. |
 | `buildkite-gha-source-ref` | No | — | `latest` or a full lowercase commit for unreleased CLI testing. |
 | `private-checkout` | No | `false` | Enable read-only checkout of the pipeline's private GitHub repository. |
 
-The plugin release (`github-actions#v0.4.4`) and CLI `version` are independent. Set `version` only when you need a CLI release other than the default. `version` and `buildkite-gha-source-ref` are mutually exclusive.
+The plugin release (`github-actions#v0.5.0`) and CLI `version` are independent. Set `version` only when you need a CLI release other than the default. `version` and `buildkite-gha-source-ref` are mutually exclusive.
 
 ## Compatibility
 
-`buildkite-gha` intentionally supports a subset of GitHub Actions. For the default CLI, see the [`v0.4.2` compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.4.2/docs/compatibility.md) before migrating a workflow. Unsupported behavior fails explicitly rather than silently choosing a substitute.
+`buildkite-gha` intentionally supports a subset of GitHub Actions. For the default CLI, see the [`v0.5.0` compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.5.0/docs/compatibility.md) before migrating a workflow. Unsupported behavior fails explicitly rather than silently choosing a substitute.
 
 Key constraints for this plugin are:
 
@@ -39,7 +39,7 @@ Key constraints for this plugin are:
 
 Configure branch, tag, schedule, and pull request triggers in Buildkite. The workflow's `on:` block does not create Buildkite triggers. Pull request builds receive a `pull_request` context; all other Buildkite builds receive `push`.
 
-Released mode downloads the selected public `buildkite/buildkite-gha` release without a GitHub token and does not require importer-side mise. Downloads and cached copies are verified before execution. Generated action jobs use a compatible trusted mise or install a verified, pinned fallback; shell-only jobs skip that setup.
+Released mode downloads the selected public `buildkite/buildkite-gha` release without a GitHub token and does not require importer-side mise. Downloads and cached copies are verified before execution. Generated jobs prepare mise only when their resolved action trees can execute JavaScript; shell-only, native-adapter-only, and Docker-only jobs skip that setup.
 
 ## Private repositories
 
@@ -50,7 +50,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.4.4:
+      - github-actions#v0.5.0:
           workflow: .github/workflows/ci.yml
           private-checkout: true
 ```
@@ -69,7 +69,7 @@ steps:
     key: "github-actions"
     cache: "/cache/bkcache/github-actions-buildkite-plugin"
     plugins:
-      - github-actions#v0.4.4:
+      - github-actions#v0.5.0:
           workflow: .github/workflows/ci.yml
 ```
 
@@ -83,7 +83,7 @@ For integration testing, `buildkite-gha-source-ref` runs the CLI from the canoni
 plugins:
   - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:
       version: "2026.5.12"
-  - github-actions#v0.4.4:
+  - github-actions#v0.5.0:
       workflow: .github/workflows/ci.yml
       buildkite-gha-source-ref: latest
 ```
