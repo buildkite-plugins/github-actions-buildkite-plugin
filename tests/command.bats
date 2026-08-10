@@ -11,6 +11,7 @@ setup() {
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION BUILDKITE_PLUGIN__VERSION
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF BUILDKITE_PLUGIN__BUILDKITE_GHA_SOURCE_REF
   unset BUILDKITE_USE_REPOSITORY_PROVIDER_GIT_CREDENTIALS BUILDKITE_USE_GITHUB_APP_GIT_CREDENTIALS
+  unset BUILDKITE_GHA_RUNTIME_IMAGE BUILDKITE_GHA_TARGET_QUEUE
   export MOCK_LOG="$TMP/mock.log"
   mkdir -p "$TMP/bin" "$TMP/payload"
   : > "$MOCK_LOG"
@@ -22,6 +23,8 @@ printf 'executable=%s\n' "$0" >> "${MOCK_LOG:?}"
 printf 'group=%s\n' "${BUILDKITE_GROUP_LABEL:-}" >> "${MOCK_LOG:?}"
 printf 'path=%s\n' "$PATH" >> "${MOCK_LOG:?}"
 printf 'commit=%s\n' "${BUILDKITE_COMMIT:-}" >> "${MOCK_LOG:?}"
+printf 'runtime-image=%s\n' "${BUILDKITE_GHA_RUNTIME_IMAGE:-}" >> "${MOCK_LOG:?}"
+printf 'target-queue=%s\n' "${BUILDKITE_GHA_TARGET_QUEUE:-}" >> "${MOCK_LOG:?}"
 printf '%s\n' "$*" >> "${MOCK_LOG:?}"
 exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
@@ -81,6 +84,8 @@ mock_source_tools() {
 #!/usr/bin/env bash
 printf 'mise:%s\n' "$*" >> "${MOCK_LOG:?}"
 printf 'source-env:MISE_YES=%s\n' "${MISE_YES:-}" >> "${MOCK_LOG:?}"
+printf 'source-env:runtime-image=%s\n' "${BUILDKITE_GHA_RUNTIME_IMAGE:-}" >> "${MOCK_LOG:?}"
+printf 'source-env:target-queue=%s\n' "${BUILDKITE_GHA_TARGET_QUEUE:-}" >> "${MOCK_LOG:?}"
 [[ "${MOCK_MISE_FAIL:-}" != 1 ]] || exit 1
 [[ "$*" == '--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@'*' upload '* ]] || exit 2
 exit "${MOCK_IMPORTER_EXIT:-0}"
@@ -92,12 +97,15 @@ teardown() { rm -rf "$TMP"; }
 
 @test "installs and invokes importer with exact arguments" {
   export TMPDIR="$TMP/work"
+  export BUILDKITE_GHA_RUNTIME_IMAGE=""
   mkdir -p "$TMPDIR"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
   ! grep -q -- '--runtime-queue' "$MOCK_LOG"
   ! grep -q -- '--private-checkout' "$MOCK_LOG"
+  grep -Fx 'runtime-image=buildkite.namespace-images.com/agent-base@sha256:04a6656f92b90269b3259fffaba67e08a3d03d8dc79b40d45c9ac3d9000e9e03' "$MOCK_LOG"
+  grep -Fx 'target-queue=' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.7.1/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.7.1/checksums.txt' "$MOCK_LOG"
   grep -Fx "path=$EXPECTED_PATH" "$MOCK_LOG"
@@ -105,6 +113,16 @@ teardown() { rm -rf "$TMP"; }
   run grep -F 'github.com/jdx/mise' "$MOCK_LOG"
   [ "$status" -eq 1 ]
   [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
+}
+
+@test "preserves an explicit runtime image override" {
+  export BUILDKITE_GHA_RUNTIME_IMAGE=registry.example.com/team/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx "runtime-image=$BUILDKITE_GHA_RUNTIME_IMAGE" "$MOCK_LOG"
+  grep -Fx 'target-queue=' "$MOCK_LOG"
+  grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
+  ! grep -q -- '--runtime-queue' "$MOCK_LOG"
 }
 
 @test "resolves a symbolic Buildkite commit to the checked-out commit" {
@@ -178,6 +196,8 @@ teardown() { rm -rf "$TMP"; }
   ! grep -q -- '--runtime-queue' "$MOCK_LOG"
   ! grep -q -- '--private-checkout' "$MOCK_LOG"
   grep -Fx 'source-env:MISE_YES=1' "$MOCK_LOG"
+  grep -Fx 'source-env:runtime-image=buildkite.namespace-images.com/agent-base@sha256:04a6656f92b90269b3259fffaba67e08a3d03d8dc79b40d45c9ac3d9000e9e03' "$MOCK_LOG"
+  grep -Fx 'source-env:target-queue=' "$MOCK_LOG"
   run grep -F 'releases/download' "$MOCK_LOG"
   [ "$status" -eq 1 ]
 }

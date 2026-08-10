@@ -25,6 +25,10 @@ The importer step must have a `key`. Each workflow job and static matrix entry b
 
 The plugin release (`github-actions#v0.7.1`) and CLI `version` are independent. Set `version` only when you need a CLI release other than the default. `version` and `buildkite-gha-source-ref` are mutually exclusive.
 
+The plugin exports `BUILDKITE_GHA_RUNTIME_IMAGE=buildkite.namespace-images.com/agent-base@sha256:04a6656f92b90269b3259fffaba67e08a3d03d8dc79b40d45c9ac3d9000e9e03` to the importer. Set a non-empty `BUILDKITE_GHA_RUNTIME_IMAGE` on the importer step to override this default. This does not change agent or queue targeting.
+
+The current default CLI release, `v0.7.1`, predates runtime-image support and ignores this variable. Until a compatible CLI release is published and made the plugin default, the runtime image is effective only in source-ref testing at or after buildkite-gha commit `7c7814ec746e0a01e3c43d8e3677493e035721ac`.
+
 Repository checkout behavior is owned by `buildkite-gha` and Buildkite's repository-provider backend. Workflow permissions remain separate: checkout credentials do not populate `GITHUB_TOKEN` or `github.token`, enable private actions, or permit alternate repositories or refs.
 
 ## Compatibility

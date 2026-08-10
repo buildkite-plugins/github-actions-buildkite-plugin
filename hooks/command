@@ -46,6 +46,8 @@ if [[ ! "${BUILDKITE_COMMIT:-}" =~ ^[0-9a-f]{40}$ ]]; then
   export BUILDKITE_COMMIT="$resolved_commit"
 fi
 
+export BUILDKITE_GHA_RUNTIME_IMAGE="${BUILDKITE_GHA_RUNTIME_IMAGE:-buildkite.namespace-images.com/agent-base@sha256:04a6656f92b90269b3259fffaba67e08a3d03d8dc79b40d45c9ac3d9000e9e03}"
+
 echo "~~~ :github: Prepare workflow"
 
 upload_args=(upload "$workflow")
