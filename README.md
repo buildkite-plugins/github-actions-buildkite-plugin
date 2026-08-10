@@ -9,7 +9,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.6.1:
+      - github-actions#v0.7.1:
           workflow: .github/workflows/ci.yml
 ```
 
@@ -20,16 +20,16 @@ The importer step must have a `key`. Each workflow job and static matrix entry b
 | Option | Required | Default | Description |
 | --- | --- | --- | --- |
 | `workflow` | Yes | — | Path to the GitHub Actions workflow. |
-| `version` | No | `0.6.0` | Exact pre-1.0 `buildkite-gha` CLI version. |
+| `version` | No | `0.7.1` | Exact pre-1.0 `buildkite-gha` CLI version. |
 | `buildkite-gha-source-ref` | No | — | `latest` or a full lowercase commit for unreleased CLI testing. |
 
-The plugin release (`github-actions#v0.6.0`) and CLI `version` are independent. Set `version` only when you need a CLI release other than the default. `version` and `buildkite-gha-source-ref` are mutually exclusive.
+The plugin release (`github-actions#v0.7.1`) and CLI `version` are independent. Set `version` only when you need a CLI release other than the default. `version` and `buildkite-gha-source-ref` are mutually exclusive.
 
 Repository checkout behavior is owned by `buildkite-gha` and Buildkite's repository-provider backend. Workflow permissions remain separate: checkout credentials do not populate `GITHUB_TOKEN` or `github.token`, enable private actions, or permit alternate repositories or refs.
 
 ## Compatibility
 
-`buildkite-gha` intentionally supports a subset of GitHub Actions. For the default CLI, see the [`v0.6.0` compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.6.0/docs/compatibility.md) before migrating a workflow. Unsupported behavior fails explicitly rather than silently choosing a substitute.
+`buildkite-gha` intentionally supports a subset of GitHub Actions. For the default CLI, see the [`v0.7.1` compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.7.1/docs/compatibility.md) before migrating a workflow. Unsupported behavior fails explicitly rather than silently choosing a substitute.
 
 Key constraints for this plugin are:
 
@@ -52,7 +52,7 @@ steps:
     key: "github-actions"
     cache: "/cache/bkcache/github-actions-buildkite-plugin"
     plugins:
-      - github-actions#v0.6.1:
+      - github-actions#v0.7.1:
           workflow: .github/workflows/ci.yml
 ```
 
@@ -66,7 +66,7 @@ For integration testing, `buildkite-gha-source-ref` runs the CLI from the canoni
 plugins:
   - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:
       version: "2026.5.12"
-  - github-actions#v0.6.1:
+  - github-actions#v0.7.1:
       workflow: .github/workflows/ci.yml
       buildkite-gha-source-ref: latest
 ```
