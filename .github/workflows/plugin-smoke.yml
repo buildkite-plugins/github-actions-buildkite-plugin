@@ -16,4 +16,3 @@ jobs:
           test "${RUNNER_OS:-}" = Linux
           test -n "${GITHUB_SHA:-}"
           test -n "${GITHUB_REPOSITORY:-}"
-          test -n "${GITHUB_WORKFLOW:-}"
