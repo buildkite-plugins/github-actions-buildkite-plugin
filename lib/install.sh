@@ -7,12 +7,40 @@ gha_require() {
 }
 
 gha_version() {
-  local value="${1#v}"
-  if [[ ! "$value" =~ ^0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
-    gha_error "invalid CLI version '$1'; expected strict pre-1.0 semver (for example 0.7.1)"
+  local value="${1#v}" major minor
+  if [[ "$value" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+    major="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+    if [[ "$major" != 0 || "$minor" =~ ^(8|9|[1-9][0-9]+)$ ]]; then
+      printf '%s\n' "$value"
+      return
+    fi
+  fi
+  gha_error "invalid CLI version '$1'; expected latest or an exact stable release from 0.8.0 onward"
+  return 1
+}
+
+gha_resolve_version() {
+  local raw="$1" resolved tag
+  if [[ "$raw" != latest ]]; then
+    gha_version "$raw"
+    return
+  fi
+  gha_require curl || return 1
+  resolved="$(curl --disable --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --output /dev/null --write-out '%{url_effective}' \
+    https://github.com/buildkite/buildkite-gha/releases/latest)" || {
+    gha_error "failed to resolve the latest buildkite-gha release"
+    return 1
+  }
+  tag="${resolved#https://github.com/buildkite/buildkite-gha/releases/tag/}"
+  if [[ "$tag" == "$resolved" || "$resolved" != "https://github.com/buildkite/buildkite-gha/releases/tag/$tag" ]]; then
+    gha_error "latest buildkite-gha release resolved to an unexpected URL: $resolved"
     return 1
   fi
-  printf '%s\n' "$value"
+  resolved="$(gha_version "$tag")" || return 1
+  gha_error "latest buildkite-gha release resolved to v$resolved"
+  printf '%s\n' "$resolved"
 }
 
 gha_cache_root() {
@@ -67,7 +95,8 @@ gha_verify_distribution() {
 
 install_buildkite_gha() (
   local raw="$1" version tag root destination cached_archive invalid work archive checksums listing checksum matches actual_checksum staged run cache_hit
-  version="$(gha_version "$raw")" || return 1
+  unset TAR_OPTIONS GZIP
+  version="$(gha_resolve_version "$raw")" || return 1
   tag="v${version}"
   root="$(gha_cache_root)" || return 1
   destination="${root}/${tag}/Linux_x86_64"
@@ -77,7 +106,7 @@ install_buildkite_gha() (
   archive="$work/buildkite-gha_Linux_x86_64.tar.gz"; checksums="$work/checksums.txt"; listing="$work/listing"
   trap 'rm -rf "$work"' EXIT
   local base="https://github.com/buildkite/buildkite-gha/releases/download/${tag}"
-  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "${base}/checksums.txt" -o "$checksums" || { gha_error "failed to download checksums for $tag"; return 1; }
+  curl --disable --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 "${base}/checksums.txt" -o "$checksums" || { gha_error "failed to download checksums for $tag"; return 1; }
   matches="$(awk '$2 == "buildkite-gha_Linux_x86_64.tar.gz" && length($1) == 64 && $1 ~ /^[0-9a-fA-F]+$/ { print tolower($1) }' "$checksums")"
   [[ "$(printf '%s\n' "$matches" | grep -c .)" -eq 1 ]] || { gha_error "checksums.txt must contain exactly one valid archive checksum"; return 1; }
   checksum="$(printf '%s' "$matches")"
@@ -95,7 +124,7 @@ install_buildkite_gha() (
         rm -rf -- "$invalid"
       fi
     fi
-    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "${base}/buildkite-gha_Linux_x86_64.tar.gz" -o "$archive" || { gha_error "failed to download CLI archive for $tag"; return 1; }
+    curl --disable --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 "${base}/buildkite-gha_Linux_x86_64.tar.gz" -o "$archive" || { gha_error "failed to download CLI archive for $tag"; return 1; }
   fi
   actual_checksum="$(sha256sum "$archive" | awk 'NR == 1 { print tolower($1) }')" || { gha_error "could not hash CLI archive"; return 1; }
   [[ "$actual_checksum" == "$checksum" ]] || { gha_error "CLI archive checksum verification failed"; return 1; }

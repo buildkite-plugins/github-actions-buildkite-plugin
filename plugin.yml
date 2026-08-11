@@ -4,6 +4,7 @@ author: https://github.com/buildkite-plugins
 requirements:
   - bash
   - curl
+  - git
   - tar
   - sha256sum
   - awk
@@ -21,12 +22,9 @@ configuration:
       description: Path to the GitHub Actions workflow to upload.
     version:
       type: string
-      default: "0.7.1"
-      description: Exact pre-1.0 buildkite-gha CLI version.
-    buildkite-gha-source-ref:
-      type: string
-      pattern: "^(latest|[0-9a-f]{40})$"
-      description: Build buildkite-gha from the latest main commit or an exact full commit using config-free mise and pinned Go. Mutually exclusive with version.
+      default: latest
+      pattern: "^(latest|v?(0\\.(8|9|[1-9][0-9]+)|[1-9][0-9]*\\.(0|[1-9][0-9]*))\\.(0|[1-9][0-9]*))$"
+      description: Latest stable or an exact stable buildkite-gha CLI release from 0.8.0 onward.
   required:
     - workflow
   additionalProperties: false
