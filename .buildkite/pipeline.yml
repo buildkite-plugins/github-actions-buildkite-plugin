@@ -22,23 +22,8 @@ steps:
     command: |
       set -euo pipefail
       commit="$${BUILDKITE_COMMIT:?BUILDKITE_COMMIT is required}"
-      source_ref="$${GITHUB_ACTIONS_SOURCE_REF:-}"
       [[ "$$commit" =~ ^[0-9a-f]{40}$$ ]]
-      plugin_config=(
-        "      - github-actions#$$commit:"
-        "          workflow: .github/workflows/plugin-smoke.yml"
-      )
-      if [[ -n "$$source_ref" ]]; then
-        [[ "$$source_ref" == latest || "$$source_ref" =~ ^[0-9a-f]{40}$$ ]]
-        plugin_config=(
-          '      - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:'
-          '          version: "2026.5.12"'
-          "$${plugin_config[@]}"
-          "          buildkite-gha-source-ref: \"$$source_ref\""
-        )
-      fi
-      {
-        cat <<YAML
+      cat <<YAML | buildkite-agent pipeline upload
       steps:
         - label: ":github: Live plugin smoke"
           key: "live-plugin-smoke-importer"
@@ -50,6 +35,9 @@ steps:
           env:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
           plugins:
+            - github-actions#$$commit:
+                workflow: .github/workflows/plugin-smoke.yml
+                runners:
+                  - runs-on: ubuntu-latest
+                    queue: hosted
       YAML
-        printf '%s\n' "$${plugin_config[@]}"
-      } | buildkite-agent pipeline upload

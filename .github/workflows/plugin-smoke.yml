@@ -6,13 +6,13 @@ on:
 
 jobs:
   verify:
-    name: Verify released plugin defaults
+    name: Verify plugin runtime
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Verify candidate source
+      - name: Verify runtime context
+        shell: bash
         run: |
-          grep -F 'default: "0.7.1"' plugin.yml
-          grep -F 'configured_version:-0.7.1' hooks/command
-          grep -F 'buildkite-gha-source-ref:' plugin.yml
-          grep -F 'mise --no-config x go@1.26.5' lib/install.sh
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = Linux
+          test -n "${GITHUB_SHA:-}"
+          test -n "${GITHUB_REPOSITORY:-}"

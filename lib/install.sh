@@ -16,12 +16,41 @@ gha_tmp_root() {
 }
 
 gha_version() {
-  local value="${1#v}"
-  if [[ ! "$value" =~ ^0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
-    gha_error "invalid CLI version '$1'; expected strict pre-1.0 semver (for example 0.7.1)"
+  local value="${1#v}" major minor patch
+  if [[ "$value" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+    major="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+    patch="${BASH_REMATCH[3]}"
+    if [[ "$major" != 0 || "$minor" =~ ^(9|[1-9][0-9]+)$ || ( "$minor" == 8 && "$patch" != 0 ) ]]; then
+      printf '%s\n' "$value"
+      return
+    fi
+  fi
+  gha_error "invalid CLI version '$1'; expected latest or an exact stable release newer than 0.8.0"
+  return 1
+}
+
+gha_resolve_version() {
+  local raw="$1" resolved tag
+  if [[ "$raw" != latest ]]; then
+    gha_version "$raw"
+    return
+  fi
+  gha_require curl || return 1
+  resolved="$(curl --disable --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --output /dev/null --write-out '%{url_effective}' \
+    https://github.com/buildkite/buildkite-gha/releases/latest)" || {
+    gha_error "failed to resolve the latest buildkite-gha release"
+    return 1
+  }
+  tag="${resolved#https://github.com/buildkite/buildkite-gha/releases/tag/}"
+  if [[ "$tag" == "$resolved" || "$resolved" != "https://github.com/buildkite/buildkite-gha/releases/tag/$tag" ]]; then
+    gha_error "latest buildkite-gha release resolved to an unexpected URL: $resolved"
     return 1
   fi
-  printf '%s\n' "$value"
+  resolved="$(gha_version "$tag")" || return 1
+  gha_error "latest buildkite-gha release resolved to v$resolved"
+  printf '%s\n' "$resolved"
 }
 
 gha_cache_root() {
@@ -106,7 +135,7 @@ gha_install_distribution() {
         rm -rf -- "$invalid"
       fi
     fi
-    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    curl --disable --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
       "https://github.com/buildkite/buildkite-gha/releases/download/${tag}/${asset}" -o "$archive" || {
         gha_error "failed to download $asset for $tag"
         return 1
@@ -140,7 +169,8 @@ gha_install_distribution() {
 
 install_buildkite_gha() (
   local raw="$1" version tag root tmp_root work checksums run complete command
-  version="$(gha_version "$raw")" || return 1
+  unset TAR_OPTIONS GZIP
+  version="$(gha_resolve_version "$raw")" || return 1
   tag="v${version}"
   root="$(gha_cache_root)" || return 1
   tmp_root="$(gha_tmp_root)" || return 1
@@ -150,41 +180,13 @@ install_buildkite_gha() (
   checksums="$work/checksums.txt"
   complete=false
   trap 'rm -rf "$work"; [[ "$complete" == true ]] || rm -rf "$run"' EXIT
-  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  curl --disable --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
     "https://github.com/buildkite/buildkite-gha/releases/download/${tag}/checksums.txt" -o "$checksums" || {
       gha_error "failed to download checksums for $tag"
       return 1
     }
   gha_install_distribution "$root" "$tag" "$version" Linux_x86_64 "$checksums" "$work" "$run" true || return 1
   gha_install_distribution "$root" "$tag" "$version" Darwin_arm64 "$checksums" "$work" "$run" false || return 1
-  complete=true
-  printf '%s\n' "$run"
-)
-
-install_buildkite_gha_source() (
-  local ref="$1" tmp_root run complete platform goos goarch
-  tmp_root="$(gha_tmp_root)" || return 1
-  run="$(mktemp -d "$tmp_root/github-actions-buildkite-plugin-source.XXXXXX")" || return 1
-  complete=false
-  trap '[[ "$complete" == true ]] || rm -rf "$run"' EXIT
-  for platform in Linux_x86_64 Darwin_arm64; do
-    case "$platform" in
-      Linux_x86_64) goos=linux; goarch=amd64 ;;
-      Darwin_arm64) goos=darwin; goarch=arm64 ;;
-    esac
-    mkdir "$run/$platform" || return 1
-    MISE_YES=1 mise --no-config x go@1.26.5 -- \
-      env CGO_ENABLED=0 GOTOOLCHAIN=local GOOS="$goos" GOARCH="$goarch" GOBIN="$run/$platform" \
-      go install -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${ref}" || return 1
-    [[ -f "$run/$platform/buildkite-gha" && ! -L "$run/$platform/buildkite-gha" ]] || {
-      gha_error "buildkite-gha source build did not produce $platform executable"
-      return 1
-    }
-    chmod 0700 "$run/$platform" "$run/$platform/buildkite-gha" || {
-      gha_error "failed to secure $platform source build"
-      return 1
-    }
-  done
   complete=true
   printf '%s\n' "$run"
 )
