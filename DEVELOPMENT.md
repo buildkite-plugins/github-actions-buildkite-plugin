@@ -22,7 +22,7 @@ The Buildkite pipeline's required released-default smoke test:
 3. Uploads `.github/workflows/plugin-smoke.yml`
 4. Checks out the same commit in a generated hosted job and verifies the release defaults
 
-This lane requires Linux x86-64 Hosted Agents, but no configured secrets or cache service. Cache integration is tested separately in the `buildkite/buildkite-gha` demo pipeline.
+The importer lane requires Linux x86-64 Hosted Agents, but no configured secrets or cache service. Generated jobs may use configured runner queues and immutable Linux runtime images, including macOS Apple Silicon queues when the paired `buildkite-gha` release supports their labels. This does not imply GitHub image, Xcode, Docker, or container parity. Cache integration is tested separately in the `buildkite/buildkite-gha` demo pipeline.
 
 Set `GITHUB_ACTIONS_SOURCE_REF` to `latest` or a full lowercase 40-character CLI commit on a manually created Buildkite build to run the optional source smoke instead. This lane uses the repository's `mise.toml` to install pinned mise 2026.5.12 and Go 1.26.5, pins the plugin to the build's exact commit, and exercises `buildkite-gha-source-ref` end to end. Ordinary builds continue to prove the released archive and installation path.
 
@@ -31,6 +31,7 @@ Set `GITHUB_ACTIONS_SOURCE_REF` to `latest` or a full lowercase 40-character CLI
 Plugin releases are Git tags and contain no generated assets. Before creating a `v0.x.y` tag, verify that:
 
 - the default CLI version has a public `buildkite/buildkite-gha` release;
+- that CLI release contains both `buildkite-gha_Linux_x86_64.tar.gz` and `buildkite-gha_Darwin_arm64.tar.gz` in the same `checksums.txt`;
 - the released-default smoke passes against that release;
 - the cache integration demo passes against the same plugin commit; and
 - the Buildkite build for `main` passes

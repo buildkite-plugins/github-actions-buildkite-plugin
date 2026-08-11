@@ -23,10 +23,32 @@ configuration:
       type: string
       default: "0.7.1"
       description: Exact pre-1.0 buildkite-gha CLI version.
+    runners:
+      type: array
+      minItems: 1
+      description: Exact GitHub runner-label mappings to Buildkite queues and optional immutable runtime images.
+      items:
+        type: object
+        properties:
+          runs-on:
+            type: string
+            minLength: 1
+            pattern: "\\S"
+          queue:
+            type: string
+            minLength: 1
+            pattern: "\\S"
+          image:
+            type: string
+            pattern: "^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$"
+        required:
+          - runs-on
+          - queue
+        additionalProperties: false
     buildkite-gha-source-ref:
       type: string
       pattern: "^(latest|[0-9a-f]{40})$"
-      description: Build buildkite-gha from the latest main commit or an exact full commit using config-free mise and pinned Go. Mutually exclusive with version.
+      description: Build Linux x86-64 and Darwin arm64 buildkite-gha executables from the latest main commit or an exact full commit using config-free mise and pinned Go. Mutually exclusive with version.
   required:
     - workflow
   additionalProperties: false

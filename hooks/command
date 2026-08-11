@@ -24,6 +24,38 @@ if [[ -n "$source_ref" && -n "$configured_version" ]]; then
   exit 1
 fi
 
+runner_args=()
+runner_prefix=BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS
+if [[ ! -v BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_0_RUNS_ON && -v BUILDKITE_PLUGIN__RUNNERS_0_RUNS_ON ]]; then
+  runner_prefix=BUILDKITE_PLUGIN__RUNNERS
+fi
+runner_index=0
+while :; do
+  runs_on_var="${runner_prefix}_${runner_index}_RUNS_ON"
+  queue_var="${runner_prefix}_${runner_index}_QUEUE"
+  image_var="${runner_prefix}_${runner_index}_IMAGE"
+  if [[ ! -v "$runs_on_var" && ! -v "$queue_var" && ! -v "$image_var" ]]; then
+    break
+  fi
+  runs_on="${!runs_on_var:-}"
+  queue="${!queue_var:-}"
+  if [[ -z "${runs_on//[[:space:]]/}" || "$runs_on" == *$'\n'* || "$runs_on" == *$'\r'* ||
+    -z "${queue//[[:space:]]/}" || "$queue" == *$'\n'* || "$queue" == *$'\r'* ]]; then
+    echo "github-actions plugin: runners[$runner_index] requires non-empty, single-line runs-on and queue values" >&2
+    exit 1
+  fi
+  runner_args+=(--runner-queue "$runs_on=$queue")
+  if [[ -v "$image_var" ]]; then
+    image="${!image_var}"
+    if [[ -z "${image//[[:space:]]/}" || "$image" == *$'\n'* || "$image" == *$'\r'* ]]; then
+      echo "github-actions plugin: runners[$runner_index].image must be a non-empty, single-line image" >&2
+      exit 1
+    fi
+    runner_args+=(--runner-image "$runs_on=$image")
+  fi
+  runner_index=$((runner_index + 1))
+done
+
 case "$(uname -s)" in
   Linux) ;;
   *) echo "github-actions plugin: unsupported operating system '$(uname -s)'; only Linux x86-64 is supported" >&2; exit 1 ;;
@@ -48,8 +80,6 @@ fi
 
 echo "~~~ :github: Prepare workflow"
 
-upload_args=(upload "$workflow")
-
 if [[ -n "$source_ref" ]]; then
   resolved_source_ref="$source_ref"
   if [[ "$source_ref" == latest ]]; then
@@ -70,12 +100,18 @@ if [[ -n "$source_ref" ]]; then
   fi
   gha_require mise
   echo "github-actions plugin: running buildkite-gha source at $resolved_source_ref with Go 1.26.5" >&2
-  MISE_YES=1 mise --no-config x go@1.26.5 -- \
-    env CGO_ENABLED=0 GOTOOLCHAIN=local \
-    go run -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${resolved_source_ref}" \
-    "${upload_args[@]}"
+  distribution="$(install_buildkite_gha_source "$resolved_source_ref")"
 else
   distribution="$(install_buildkite_gha "${configured_version:-0.7.1}")"
-  trap 'rm -rf -- "$distribution"' EXIT
-  "${distribution}/buildkite-gha" "${upload_args[@]}"
 fi
+trap 'rm -rf -- "$distribution"' EXIT
+linux_executable="${distribution}/Linux_x86_64/buildkite-gha"
+darwin_executable="${distribution}/Darwin_arm64/buildkite-gha"
+upload_args=(
+  upload
+  "${runner_args[@]}"
+  --runtime-distribution "linux/amd64=$linux_executable"
+  --runtime-distribution "darwin/arm64=$darwin_executable"
+  "$workflow"
+)
+"$linux_executable" "${upload_args[@]}"

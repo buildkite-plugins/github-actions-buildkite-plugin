@@ -4,17 +4,23 @@ setup() {
   REPO="$BATS_TEST_DIRNAME/.."
   TMP="$(mktemp -d)"
   export REAL_CP="$(command -v cp)"
+  export REAL_CHMOD="$(command -v chmod)"
   export REAL_MKTEMP="$(command -v mktemp)"
   export BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT="$TMP/cache"
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW=".github/workflows/ci.yml"
   export BUILDKITE_COMMIT=1111111111111111111111111111111111111111
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION BUILDKITE_PLUGIN__VERSION
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF BUILDKITE_PLUGIN__BUILDKITE_GHA_SOURCE_REF
+  unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_0_RUNS_ON BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_0_QUEUE BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_0_IMAGE
+  unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_1_RUNS_ON BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_1_QUEUE BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_1_IMAGE
+  unset BUILDKITE_PLUGIN__RUNNERS_0_RUNS_ON BUILDKITE_PLUGIN__RUNNERS_0_QUEUE BUILDKITE_PLUGIN__RUNNERS_0_IMAGE
+  unset BUILDKITE_GHA_TARGET_QUEUE BUILDKITE_GHA_RUNTIME_IMAGE
   unset BUILDKITE_USE_REPOSITORY_PROVIDER_GIT_CREDENTIALS BUILDKITE_USE_GITHUB_APP_GIT_CREDENTIALS
   export MOCK_LOG="$TMP/mock.log"
-  mkdir -p "$TMP/bin" "$TMP/payload"
+  mkdir -p "$TMP/bin" "$TMP/payload" "$TMP/darwin-payload"
   : > "$MOCK_LOG"
   printf 'license\n' > "$TMP/payload/LICENSE"
+  printf 'license\n' > "$TMP/darwin-payload/LICENSE"
   cat > "$TMP/payload/buildkite-gha" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == --version ]]; then echo 'buildkite-gha 0.7.1'; exit; fi
@@ -22,10 +28,21 @@ printf 'executable=%s\n' "$0" >> "${MOCK_LOG:?}"
 printf 'group=%s\n' "${BUILDKITE_GROUP_LABEL:-}" >> "${MOCK_LOG:?}"
 printf 'path=%s\n' "$PATH" >> "${MOCK_LOG:?}"
 printf 'commit=%s\n' "${BUILDKITE_COMMIT:-}" >> "${MOCK_LOG:?}"
+for arg in "$@"; do
+  case "$arg" in
+    darwin/arm64=*)
+      darwin_executable="${arg#darwin/arm64=}"
+      [[ -x "$darwin_executable" ]] || exit 91
+      printf 'darwin-mode=%s\n' "$(stat -c %a "$darwin_executable")" >> "${MOCK_LOG:?}"
+      ;;
+  esac
+done
 printf '%s\n' "$*" >> "${MOCK_LOG:?}"
 exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
   chmod +x "$TMP/payload/buildkite-gha"
+  printf '\317\372\355\376darwin-arm64-test-payload\n' > "$TMP/darwin-payload/buildkite-gha"
+  chmod 0644 "$TMP/darwin-payload/buildkite-gha"
   make_release
   cat > "$TMP/bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -40,7 +57,8 @@ while [[ $# -gt 0 ]]; do
 done
 echo "$url" >> "${MOCK_LOG:?}"
 case "$url" in
-  */buildkite-gha_Linux_x86_64.tar.gz) cp "${MOCK_ARCHIVE:?}" "$out" ;;
+  */buildkite-gha_Linux_x86_64.tar.gz) cp "${MOCK_LINUX_ARCHIVE:?}" "$out" ;;
+  */buildkite-gha_Darwin_arm64.tar.gz) cp "${MOCK_DARWIN_ARCHIVE:?}" "$out" ;;
   */checksums.txt) [[ "${MOCK_FAIL_CHECKSUMS:-}" != 1 ]] || exit 22; cp "${MOCK_CHECKSUMS:?}" "$out" ;;
   *) exit 2 ;;
 esac
@@ -65,14 +83,25 @@ fi
 exit 2
 EOF
   chmod +x "$TMP/bin/git"
-  export MOCK_ARCHIVE="$TMP/release.tar.gz" MOCK_CHECKSUMS="$TMP/checksums.txt"
+  export MOCK_LINUX_ARCHIVE="$TMP/release.tar.gz"
+  export MOCK_DARWIN_ARCHIVE="$TMP/darwin-release.tar.gz"
+  export MOCK_CHECKSUMS="$TMP/checksums.txt"
+  export MOCK_SOURCE_EXECUTABLE="$TMP/payload/buildkite-gha"
+  export MOCK_SOURCE_DARWIN_EXECUTABLE="$TMP/darwin-payload/buildkite-gha"
   export PATH="$TMP/bin:$PATH"
   export EXPECTED_PATH="$PATH"
 }
 
 make_release() {
   tar -czf "$TMP/release.tar.gz" -C "$TMP/payload" buildkite-gha LICENSE
-  printf '%s  buildkite-gha_Linux_x86_64.tar.gz\n' "$(sha256sum "$TMP/release.tar.gz" | awk '{print $1}')" > "$TMP/checksums.txt"
+  tar -czf "$TMP/darwin-release.tar.gz" -C "$TMP/darwin-payload" buildkite-gha LICENSE
+  write_checksums
+}
+
+write_checksums() {
+  printf '%s  buildkite-gha_Linux_x86_64.tar.gz\n%s  buildkite-gha_Darwin_arm64.tar.gz\n' \
+    "$(sha256sum "$TMP/release.tar.gz" | awk '{print $1}')" \
+    "$(sha256sum "$TMP/darwin-release.tar.gz" | awk '{print $1}')" > "$TMP/checksums.txt"
 }
 
 mock_source_tools() {
@@ -82,10 +111,35 @@ mock_source_tools() {
 printf 'mise:%s\n' "$*" >> "${MOCK_LOG:?}"
 printf 'source-env:MISE_YES=%s\n' "${MISE_YES:-}" >> "${MOCK_LOG:?}"
 [[ "${MOCK_MISE_FAIL:-}" != 1 ]] || exit 1
-[[ "$*" == '--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@'*' upload '* ]] || exit 2
-exit "${MOCK_IMPORTER_EXIT:-0}"
+gobin=""; goos=""
+for arg in "$@"; do
+  case "$arg" in
+    GOBIN=*) gobin="${arg#GOBIN=}" ;;
+    GOOS=*) goos="${arg#GOOS=}" ;;
+  esac
+done
+[[ -n "$gobin" && -n "$goos" ]] || exit 2
+mkdir -p "$gobin"
+if [[ "$goos" == linux ]]; then
+  cp "${MOCK_SOURCE_EXECUTABLE:?}" "$gobin/buildkite-gha"
+elif [[ "$goos" == darwin ]]; then
+  cp "${MOCK_SOURCE_DARWIN_EXECUTABLE:?}" "$gobin/buildkite-gha"
+else
+  exit 2
+fi
+"${REAL_CHMOD:?}" +x "$gobin/buildkite-gha"
 EOF
   chmod +x "$TMP/bin/mise"
+}
+
+assert_upload_arguments() {
+  local runner_arguments="${1:-}" executable distribution expected
+  executable="$(awk -F= '/^executable=/ { print $2 }' "$MOCK_LOG")"
+  distribution="$(dirname "$(dirname "$executable")")"
+  expected="upload${runner_arguments:+ $runner_arguments} --runtime-distribution linux/amd64=$distribution/Linux_x86_64/buildkite-gha --runtime-distribution darwin/arm64=$distribution/Darwin_arm64/buildkite-gha .github/workflows/ci.yml"
+  grep -Fx "$expected" "$MOCK_LOG"
+  [[ "$distribution" = /* ]]
+  [[ "$distribution" != "${BUILDKITE_BUILD_CHECKOUT_PATH:-$REPO}"/* ]]
 }
 
 teardown() { rm -rf "$TMP"; }
@@ -93,18 +147,38 @@ teardown() { rm -rf "$TMP"; }
 @test "installs and invokes importer with exact arguments" {
   export TMPDIR="$TMP/work"
   mkdir -p "$TMPDIR"
+  export BUILDKITE_BUILD_CHECKOUT_PATH="$REPO"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
+  assert_upload_arguments
   ! grep -q -- '--runtime-queue' "$MOCK_LOG"
   ! grep -q -- '--private-checkout' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.7.1/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.7.1/buildkite-gha_Darwin_arm64.tar.gz' "$MOCK_LOG"
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.7.1/checksums.txt' "$MOCK_LOG"
   grep -Fx "path=$EXPECTED_PATH" "$MOCK_LOG"
+  grep -Fx 'darwin-mode=755' "$MOCK_LOG"
   [ "$output" = "~~~ :github: Prepare workflow" ]
   run grep -F 'github.com/jdx/mise' "$MOCK_LOG"
   [ "$status" -eq 1 ]
   [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
+}
+
+@test "normalizes relative temporary paths for release and source distributions" {
+  mkdir "$TMP/work"
+  run bash -c 'cd "$1" && TMPDIR=work "$2/hooks/command"' _ "$TMP" "$REPO"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  assert_upload_arguments
+  executable="$(awk -F= '/^executable=/ { print $2 }' "$MOCK_LOG")"
+  [[ "$executable" == "$TMP"/work/github-actions-buildkite-plugin-run.*/Linux_x86_64/buildkite-gha ]]
+
+  : > "$MOCK_LOG"
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF=abcdef0123456789abcdef0123456789abcdef01
+  mock_source_tools
+  run bash -c 'cd "$1" && TMPDIR=work "$2/hooks/command"' _ "$TMP" "$REPO"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  assert_upload_arguments
+  ! grep -E 'GOBIN=[^/]' "$MOCK_LOG"
 }
 
 @test "resolves a symbolic Buildkite commit to the checked-out commit" {
@@ -141,7 +215,7 @@ teardown() { rm -rf "$TMP"; }
       export "$signal"="$value"
       run "$REPO/hooks/command"
       [ "$status" -eq 0 ] || { echo "$output"; false; }
-      grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
+      assert_upload_arguments
       ! grep -q -- '--runtime-queue' "$MOCK_LOG"
       ! grep -q -- '--private-checkout' "$MOCK_LOG"
     done
@@ -154,6 +228,43 @@ teardown() { rm -rf "$TMP"; }
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx 'group=GitHub Actions / checks' "$MOCK_LOG"
+}
+
+@test "forwards runner queues and immutable images as exact upload arguments" {
+  image="buildkite.namespace-images.com/agent-base@sha256:04a6656f92b90269b3259fffaba67e08a3d03d8dc79b40d45c9ac3d9000e9e03"
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_0_RUNS_ON="ubuntu-latest"
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_0_QUEUE="hosted"
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_0_IMAGE="$image"
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_1_RUNS_ON="macos-14"
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_1_QUEUE="macos-sonoma-arm64"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  assert_upload_arguments "--runner-queue ubuntu-latest=hosted --runner-image ubuntu-latest=$image --runner-queue macos-14=macos-sonoma-arm64"
+  ! grep -q -- '--runner-image macos-14=' "$MOCK_LOG"
+}
+
+@test "supports the generic plugin-test runner mapping prefix" {
+  export BUILDKITE_PLUGIN__RUNNERS_0_RUNS_ON="macos-15"
+  export BUILDKITE_PLUGIN__RUNNERS_0_QUEUE="macos-sequoia-arm64"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  assert_upload_arguments "--runner-queue macos-15=macos-sequoia-arm64"
+}
+
+@test "rejects incomplete or multiline runner mappings before installing" {
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_0_RUNS_ON="ubuntu-latest"
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"runners[0] requires non-empty, single-line runs-on and queue values"* ]]
+  ! grep -q 'releases/download\|^upload ' "$MOCK_LOG"
+
+  : > "$MOCK_LOG"
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_0_QUEUE="hosted"
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_RUNNERS_0_IMAGE=$'registry/image@sha256:abc\nother'
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"runners[0].image must be a non-empty, single-line image"* ]]
+  ! grep -q 'releases/download\|^upload ' "$MOCK_LOG"
 }
 
 @test "accepts a leading v and rejects version injection" {
@@ -174,10 +285,14 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [[ "$output" == *"buildkite-gha source latest resolved to $MOCK_SOURCE_SHA"* ]]
   grep -Fx 'git:ls-remote --exit-code --refs https://github.com/buildkite/buildkite-gha.git refs/heads/main' "$MOCK_LOG"
-  grep -Fx "mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$MOCK_SOURCE_SHA upload .github/workflows/ci.yml" "$MOCK_LOG"
+  executable="$(awk -F= '/^executable=/ { print $2 }' "$MOCK_LOG")"
+  distribution="$(dirname "$(dirname "$executable")")"
+  grep -Fx "mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=linux GOARCH=amd64 GOBIN=$distribution/Linux_x86_64 go install -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$MOCK_SOURCE_SHA" "$MOCK_LOG"
+  grep -Fx "mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=darwin GOARCH=arm64 GOBIN=$distribution/Darwin_arm64 go install -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$MOCK_SOURCE_SHA" "$MOCK_LOG"
+  assert_upload_arguments
   ! grep -q -- '--runtime-queue' "$MOCK_LOG"
   ! grep -q -- '--private-checkout' "$MOCK_LOG"
-  grep -Fx 'source-env:MISE_YES=1' "$MOCK_LOG"
+  [ "$(grep -c '^source-env:MISE_YES=1$' "$MOCK_LOG")" -eq 2 ]
   run grep -F 'releases/download' "$MOCK_LOG"
   [ "$status" -eq 1 ]
 }
@@ -188,7 +303,8 @@ teardown() { rm -rf "$TMP"; }
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   ! grep -q '^git:' "$MOCK_LOG"
-  grep -Fx 'mise:--no-config x go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@abcdef0123456789abcdef0123456789abcdef01 upload .github/workflows/ci.yml' "$MOCK_LOG"
+  [ "$(grep -c 'go install -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@abcdef0123456789abcdef0123456789abcdef01$' "$MOCK_LOG")" -eq 2 ]
+  assert_upload_arguments
   ! grep -q -- '--runtime-queue' "$MOCK_LOG"
   ! grep -q -- '--private-checkout' "$MOCK_LOG"
 }
@@ -246,7 +362,15 @@ EOF
 }
 
 @test "rejects missing malformed duplicate and mismatched checksums without running importer" {
-  for content in '' 'not-a-checksum' "$(printf '%064d  buildkite-gha_Linux_x86_64.tar.gz\n%064d  buildkite-gha_Linux_x86_64.tar.gz' 0 0)" "$(printf '%064d  buildkite-gha_Linux_x86_64.tar.gz' 0)"; do
+  linux_checksum="$(sha256sum "$TMP/release.tar.gz" | awk '{print $1}')"
+  for content in \
+    '' \
+    'not-a-checksum' \
+    "$(printf '%064d  buildkite-gha_Linux_x86_64.tar.gz\n%064d  buildkite-gha_Linux_x86_64.tar.gz' 0 0)" \
+    "$(printf '%064d  buildkite-gha_Linux_x86_64.tar.gz' 0)" \
+    "$linux_checksum  buildkite-gha_Linux_x86_64.tar.gz" \
+    "$(printf '%s  buildkite-gha_Linux_x86_64.tar.gz\n%064d  buildkite-gha_Darwin_arm64.tar.gz\n%064d  buildkite-gha_Darwin_arm64.tar.gz' "$linux_checksum" 0 0)" \
+    "$(printf '%s  buildkite-gha_Linux_x86_64.tar.gz\n%064d  buildkite-gha_Darwin_arm64.tar.gz' "$linux_checksum" 0)"; do
     rm -rf "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"; printf '%s\n' "$content" > "$TMP/checksums.txt"; : > "$MOCK_LOG"
     run "$REPO/hooks/command"
     [ "$status" -ne 0 ]
@@ -257,7 +381,7 @@ EOF
 @test "rejects unexpected content and symlinks before extraction" {
   printf 'bad\n' > "$TMP/payload/evil"
   tar -czf "$TMP/release.tar.gz" -C "$TMP/payload" buildkite-gha LICENSE evil
-  printf '%s  buildkite-gha_Linux_x86_64.tar.gz\n' "$(sha256sum "$TMP/release.tar.gz" | awk '{print $1}')" > "$TMP/checksums.txt"
+  write_checksums
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
   [[ "$output" == *"unexpected, missing, duplicate, or unsafe"* ]] || { echo "$output"; false; }
@@ -282,8 +406,10 @@ EOF
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.7.1/checksums.txt' "$MOCK_LOG"
   run grep -q '/buildkite-gha_Linux_x86_64.tar.gz$' "$MOCK_LOG"
   [ "$status" -eq 1 ]
+  run grep -q '/buildkite-gha_Darwin_arm64.tar.gz$' "$MOCK_LOG"
+  [ "$status" -eq 1 ]
   executable="$(awk -F= '/^executable=/ { print $2 }' "$MOCK_LOG")"
-  [[ "$executable" == "$TMPDIR"/github-actions-buildkite-plugin-run.*/buildkite-gha ]]
+  [[ "$executable" == "$TMPDIR"/github-actions-buildkite-plugin-run.*/Linux_x86_64/buildkite-gha ]]
   [[ "$executable" != "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"/* ]]
   [ -z "$(find "$TMPDIR" -mindepth 1 -print -quit)" ]
 }
@@ -309,6 +435,63 @@ EOF
   [ "$(grep -c '^upload ' "$MOCK_LOG")" -eq 1 ]
 }
 
+@test "replaces a tampered Darwin cached archive without executing it" {
+  run "$REPO/hooks/command"; [ "$status" -eq 0 ]
+  cache="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.7.1/Darwin_arm64/buildkite-gha_Darwin_arm64.tar.gz"
+  mkdir "$TMP/tampered-darwin"
+  printf 'license\n' > "$TMP/tampered-darwin/LICENSE"
+  cat > "$TMP/tampered-darwin/buildkite-gha" <<'EOF'
+#!/usr/bin/env bash
+echo darwin-was-executed >> "${MOCK_LOG:?}"
+exit 86
+EOF
+  chmod +x "$TMP/tampered-darwin/buildkite-gha"
+  tar -czf "$cache" -C "$TMP/tampered-darwin" buildkite-gha LICENSE
+  : > "$MOCK_LOG"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  ! grep -q '^darwin-was-executed$' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.7.1/buildkite-gha_Darwin_arm64.tar.gz' "$MOCK_LOG"
+  [ "$(grep -c '^upload ' "$MOCK_LOG")" -eq 1 ]
+}
+
+@test "rejects malformed Darwin archives without executing the importer" {
+  printf 'bad\n' > "$TMP/darwin-payload/extra"
+  tar -czf "$TMP/darwin-release.tar.gz" -C "$TMP/darwin-payload" buildkite-gha LICENSE extra
+  write_checksums
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unexpected, missing, duplicate, or unsafe"* ]] || { echo "$output"; false; }
+  ! grep -q '^upload ' "$MOCK_LOG"
+}
+
+@test "fails closed when release or source distribution modes cannot be secured" {
+  cat > "$TMP/bin/chmod" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *'github-actions-buildkite-plugin-run.'*'/Darwin_arm64'* ]]; then exit 1; fi
+exec "${REAL_CHMOD:?}" "$@"
+EOF
+  chmod +x "$TMP/bin/chmod"
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"failed to set CLI distribution executable modes"* ]] || { echo "$output"; false; }
+  ! grep -q '^upload ' "$MOCK_LOG"
+
+  cat > "$TMP/bin/chmod" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *'github-actions-buildkite-plugin-source.'*'/Darwin_arm64'* ]]; then exit 1; fi
+exec "${REAL_CHMOD:?}" "$@"
+EOF
+  "$REAL_CHMOD" +x "$TMP/bin/chmod"
+  : > "$MOCK_LOG"
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF=abcdef0123456789abcdef0123456789abcdef01
+  mock_source_tools
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"failed to secure Darwin_arm64 source build"* ]] || { echo "$output"; false; }
+  ! grep -q '^upload ' "$MOCK_LOG"
+}
+
 @test "fails closed when cached archive cannot be checked upstream" {
   run "$REPO/hooks/command"; [ "$status" -eq 0 ]
   : > "$MOCK_LOG"
@@ -328,6 +511,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [ -f "$MISE_HOSTED_CACHE_VOLUME_ROOT/github-actions-buildkite-plugin/v0.7.1/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz" ]
+  [ -f "$MISE_HOSTED_CACHE_VOLUME_ROOT/github-actions-buildkite-plugin/v0.7.1/Darwin_arm64/buildkite-gha_Darwin_arm64.tar.gz" ]
   [ ! -e "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin" ]
 }
 
@@ -339,6 +523,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [ -f "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin/v0.7.1/Linux_x86_64/buildkite-gha_Linux_x86_64.tar.gz" ]
+  [ -f "$BUILDKITE_AGENT_DATA_PATH/cache/github-actions-buildkite-plugin/v0.7.1/Darwin_arm64/buildkite-gha_Darwin_arm64.tar.gz" ]
 }
 
 @test "falls back when an explicit test cache override is unavailable" {
@@ -346,7 +531,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [[ "$output" == *"cache '$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT' is unavailable; using a temporary cache"* ]]
-  grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
+  assert_upload_arguments
 }
 
 @test "continues when the verified CLI archive cannot be cached" {
@@ -363,7 +548,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [[ "$output" == *"continuing without caching"* ]]
-  grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
+  assert_upload_arguments
   [ ! -e "$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.7.1/Linux_x86_64" ]
 }
 
@@ -384,7 +569,7 @@ EOF
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.7.1/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
-  grep -Fx 'upload .github/workflows/ci.yml' "$MOCK_LOG"
+  assert_upload_arguments
 }
 
 @test "concurrent installs converge on one valid cache" {
@@ -398,7 +583,13 @@ EOF
   [ -f "$cached_archive" ]
   expected="$(awk '$2 == "buildkite-gha_Linux_x86_64.tar.gz" { print $1 }' "$TMP/checksums.txt")"
   [ "$(/usr/bin/sha256sum "$cached_archive" | awk '{ print $1 }')" = "$expected" ]
-  [ "$(grep -c '^upload .github/workflows/ci.yml$' "$MOCK_LOG")" -eq 2 ]
+  destination="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT/v0.7.1/Darwin_arm64"
+  [ -L "$destination" ]
+  cached_archive="$destination/buildkite-gha_Darwin_arm64.tar.gz"
+  [ -f "$cached_archive" ]
+  expected="$(awk '$2 == "buildkite-gha_Darwin_arm64.tar.gz" { print $1 }' "$TMP/checksums.txt")"
+  [ "$(/usr/bin/sha256sum "$cached_archive" | awk '{ print $1 }')" = "$expected" ]
+  [ "$(grep -c '^upload ' "$MOCK_LOG")" -eq 2 ]
 }
 
 @test "propagates importer failure and never runs importer after install failure" {

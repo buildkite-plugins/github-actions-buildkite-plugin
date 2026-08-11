@@ -6,6 +6,15 @@ gha_require() {
   command -v "$1" >/dev/null 2>&1 || { gha_error "required command '$1' was not found"; return 1; }
 }
 
+gha_tmp_root() {
+  local root="${TMPDIR:-/tmp}"
+  root="$(cd "$root" 2>/dev/null && pwd -P)" || {
+    gha_error "temporary directory '${TMPDIR:-/tmp}' is unavailable"
+    return 1
+  }
+  printf '%s\n' "$root"
+}
+
 gha_version() {
   local value="${1#v}"
   if [[ ! "$value" =~ ^0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
@@ -16,7 +25,7 @@ gha_version() {
 }
 
 gha_cache_root() {
-  local hosted_root root
+  local hosted_root root tmp_root
   if [[ -n "${BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT:-}" ]]; then
     root="$BUILDKITE_GITHUB_ACTIONS_PLUGIN_CACHE_ROOT"
   elif [[ "${BUILDKITE_COMPUTE_TYPE:-self-hosted}" == hosted ]] &&
@@ -30,14 +39,16 @@ gha_cache_root() {
   elif [[ -n "${HOME:-}" ]]; then
     root="${HOME}/.cache/buildkite/github-actions-buildkite-plugin"
   else
-    mktemp -d "${TMPDIR:-/tmp}/github-actions-buildkite-plugin-cache.XXXXXX"
+    tmp_root="$(gha_tmp_root)" || return 1
+    mktemp -d "$tmp_root/github-actions-buildkite-plugin-cache.XXXXXX"
     return
   fi
   if mkdir -p "$root" 2>/dev/null && [[ -w "$root" ]]; then
     printf '%s\n' "$root"
   else
     gha_error "cache '$root' is unavailable; using a temporary cache"
-    mktemp -d "${TMPDIR:-/tmp}/github-actions-buildkite-plugin-cache.XXXXXX"
+    tmp_root="$(gha_tmp_root)" || return 1
+    mktemp -d "$tmp_root/github-actions-buildkite-plugin-cache.XXXXXX"
   fi
 }
 
@@ -52,34 +63,34 @@ gha_validate_archive() {
 }
 
 gha_verify_distribution() {
-  local dir="$1" version="$2" output actual expected
+  local dir="$1" version="$2" verify_version="$3" output actual expected
   local required=(LICENSE buildkite-gha)
   local path
   for path in "${required[@]}"; do [[ -f "$dir/$path" && ! -L "$dir/$path" ]] || return 1; done
   expected=$'LICENSE\nbuildkite-gha'
   actual="$(cd "$dir" && find . -print | sed '1d; s#^\./##' | LC_ALL=C sort)" || return 1
   [[ "$actual" == "$expected" ]] || return 1
-  chmod 0755 "$dir" "$dir/buildkite-gha"
-  chmod 0644 "$dir/LICENSE"
+  chmod 0755 "$dir" "$dir/buildkite-gha" || { gha_error "failed to set CLI distribution executable modes"; return 1; }
+  chmod 0644 "$dir/LICENSE" || { gha_error "failed to set CLI distribution license mode"; return 1; }
+  [[ "$verify_version" == true ]] || return 0
   output="$("$dir/buildkite-gha" --version 2>/dev/null)" || return 1
   [[ "$output" == "buildkite-gha $version" ]] || { gha_error "downloaded CLI reports an unexpected version: $output"; return 1; }
 }
 
-install_buildkite_gha() (
-  local raw="$1" version tag root destination cached_archive invalid work archive checksums listing checksum matches actual_checksum staged run cache_hit
-  version="$(gha_version "$raw")" || return 1
-  tag="v${version}"
-  root="$(gha_cache_root)" || return 1
-  destination="${root}/${tag}/Linux_x86_64"
-  cached_archive="$destination/buildkite-gha_Linux_x86_64.tar.gz"
-  for command in curl tar sha256sum awk grep mktemp cp; do gha_require "$command" || return 1; done
-  work="$(mktemp -d "${TMPDIR:-/tmp}/github-actions-buildkite-plugin.XXXXXX")" || return 1
-  archive="$work/buildkite-gha_Linux_x86_64.tar.gz"; checksums="$work/checksums.txt"; listing="$work/listing"
-  trap 'rm -rf "$work"' EXIT
-  local base="https://github.com/buildkite/buildkite-gha/releases/download/${tag}"
-  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "${base}/checksums.txt" -o "$checksums" || { gha_error "failed to download checksums for $tag"; return 1; }
-  matches="$(awk '$2 == "buildkite-gha_Linux_x86_64.tar.gz" && length($1) == 64 && $1 ~ /^[0-9a-fA-F]+$/ { print tolower($1) }' "$checksums")"
-  [[ "$(printf '%s\n' "$matches" | grep -c .)" -eq 1 ]] || { gha_error "checksums.txt must contain exactly one valid archive checksum"; return 1; }
+gha_install_distribution() {
+  local root="$1" tag="$2" version="$3" platform="$4" checksums="$5" work="$6" run="$7" verify_version="$8"
+  local asset destination cached_archive invalid archive listing checksum matches actual_checksum staged cache_hit
+
+  case "$platform" in
+    Linux_x86_64|Darwin_arm64) asset="buildkite-gha_${platform}.tar.gz" ;;
+    *) gha_error "unsupported CLI distribution '$platform'"; return 1 ;;
+  esac
+  destination="${root}/${tag}/${platform}"
+  cached_archive="$destination/$asset"
+  archive="$work/$asset"
+  listing="$work/${platform}.listing"
+  matches="$(awk -v asset="$asset" '$2 == asset && length($1) == 64 && $1 ~ /^[0-9a-fA-F]+$/ { print tolower($1) }' "$checksums")"
+  [[ "$(printf '%s\n' "$matches" | grep -c .)" -eq 1 ]] || { gha_error "checksums.txt must contain exactly one valid checksum for $asset"; return 1; }
   checksum="$(printf '%s' "$matches")"
 
   cache_hit=false
@@ -95,17 +106,21 @@ install_buildkite_gha() (
         rm -rf -- "$invalid"
       fi
     fi
-    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "${base}/buildkite-gha_Linux_x86_64.tar.gz" -o "$archive" || { gha_error "failed to download CLI archive for $tag"; return 1; }
+    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+      "https://github.com/buildkite/buildkite-gha/releases/download/${tag}/${asset}" -o "$archive" || {
+        gha_error "failed to download $asset for $tag"
+        return 1
+      }
   fi
   actual_checksum="$(sha256sum "$archive" | awk 'NR == 1 { print tolower($1) }')" || { gha_error "could not hash CLI archive"; return 1; }
-  [[ "$actual_checksum" == "$checksum" ]] || { gha_error "CLI archive checksum verification failed"; return 1; }
+  [[ "$actual_checksum" == "$checksum" ]] || { gha_error "$asset checksum verification failed"; return 1; }
   gha_validate_archive "$archive" "$listing" || return 1
 
   if [[ ! -f "$cached_archive" || -L "$cached_archive" ]]; then
     staged=""
     if mkdir -p "$(dirname "$destination")" 2>/dev/null &&
-      staged="$(mktemp -d "$(dirname "$destination")/.Linux_x86_64.XXXXXX" 2>/dev/null)" &&
-      cp -- "$archive" "$staged/buildkite-gha_Linux_x86_64.tar.gz" 2>/dev/null; then
+      staged="$(mktemp -d "$(dirname "$destination")/.${platform}.XXXXXX" 2>/dev/null)" &&
+      cp -- "$archive" "$staged/$asset" 2>/dev/null; then
       if ln -sn "${staged##*/}" "$destination" 2>/dev/null; then :; else
         rm -rf -- "$staged" 2>/dev/null || :
       fi
@@ -115,8 +130,61 @@ install_buildkite_gha() (
     fi
   fi
 
-  run="$(mktemp -d "${TMPDIR:-/tmp}/github-actions-buildkite-plugin-run.XXXXXX")" || return 1
-  tar -xzf "$archive" -C "$run" || { rm -rf "$run"; gha_error "failed to extract CLI archive"; return 1; }
-  gha_verify_distribution "$run" "$version" || { rm -rf "$run"; gha_error "extracted CLI failed validation"; return 1; }
+  mkdir "$run/$platform" || return 1
+  tar -xzf "$archive" -C "$run/$platform" || { gha_error "failed to extract $asset"; return 1; }
+  gha_verify_distribution "$run/$platform" "$version" "$verify_version" || {
+    gha_error "extracted $asset failed validation"
+    return 1
+  }
+}
+
+install_buildkite_gha() (
+  local raw="$1" version tag root tmp_root work checksums run complete command
+  version="$(gha_version "$raw")" || return 1
+  tag="v${version}"
+  root="$(gha_cache_root)" || return 1
+  tmp_root="$(gha_tmp_root)" || return 1
+  for command in curl tar sha256sum awk grep find sed sort mktemp cp; do gha_require "$command" || return 1; done
+  work="$(mktemp -d "$tmp_root/github-actions-buildkite-plugin.XXXXXX")" || return 1
+  run="$(mktemp -d "$tmp_root/github-actions-buildkite-plugin-run.XXXXXX")" || { rm -rf "$work"; return 1; }
+  checksums="$work/checksums.txt"
+  complete=false
+  trap 'rm -rf "$work"; [[ "$complete" == true ]] || rm -rf "$run"' EXIT
+  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    "https://github.com/buildkite/buildkite-gha/releases/download/${tag}/checksums.txt" -o "$checksums" || {
+      gha_error "failed to download checksums for $tag"
+      return 1
+    }
+  gha_install_distribution "$root" "$tag" "$version" Linux_x86_64 "$checksums" "$work" "$run" true || return 1
+  gha_install_distribution "$root" "$tag" "$version" Darwin_arm64 "$checksums" "$work" "$run" false || return 1
+  complete=true
+  printf '%s\n' "$run"
+)
+
+install_buildkite_gha_source() (
+  local ref="$1" tmp_root run complete platform goos goarch
+  tmp_root="$(gha_tmp_root)" || return 1
+  run="$(mktemp -d "$tmp_root/github-actions-buildkite-plugin-source.XXXXXX")" || return 1
+  complete=false
+  trap '[[ "$complete" == true ]] || rm -rf "$run"' EXIT
+  for platform in Linux_x86_64 Darwin_arm64; do
+    case "$platform" in
+      Linux_x86_64) goos=linux; goarch=amd64 ;;
+      Darwin_arm64) goos=darwin; goarch=arm64 ;;
+    esac
+    mkdir "$run/$platform" || return 1
+    MISE_YES=1 mise --no-config x go@1.26.5 -- \
+      env CGO_ENABLED=0 GOTOOLCHAIN=local GOOS="$goos" GOARCH="$goarch" GOBIN="$run/$platform" \
+      go install -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${ref}" || return 1
+    [[ -f "$run/$platform/buildkite-gha" && ! -L "$run/$platform/buildkite-gha" ]] || {
+      gha_error "buildkite-gha source build did not produce $platform executable"
+      return 1
+    }
+    chmod 0700 "$run/$platform" "$run/$platform/buildkite-gha" || {
+      gha_error "failed to secure $platform source build"
+      return 1
+    }
+  done
+  complete=true
   printf '%s\n' "$run"
 )
