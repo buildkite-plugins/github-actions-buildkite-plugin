@@ -7,11 +7,6 @@ requirements:
   - git
   - tar
   - sha256sum
-  - awk
-  - grep
-  - find
-  - sed
-  - sort
   - mktemp
   - cp
 configuration:
@@ -25,6 +20,11 @@ configuration:
       default: latest
       pattern: "^(latest|v?(0\\.(8|9|[1-9][0-9]+)|[1-9][0-9]*\\.(0|[1-9][0-9]*))\\.(0|[1-9][0-9]*))$"
       description: Latest stable or an exact stable buildkite-gha CLI release from 0.8.0 onward.
+    minimum-release-age:
+      type: string
+      minLength: 1
+      default: 0s
+      description: Minimum age passed to mise when selecting the latest buildkite-gha release.
   required:
     - workflow
   additionalProperties: false

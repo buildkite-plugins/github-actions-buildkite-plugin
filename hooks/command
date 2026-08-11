@@ -3,11 +3,30 @@ set -euo pipefail
 umask 077
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+mise_data_dir_override="${MISE_DATA_DIR:-}"
+for variable in "${!MISE_@}"; do
+  unset "$variable"
+done
+if [[ -n "$mise_data_dir_override" ]]; then
+  export MISE_DATA_DIR="$mise_data_dir_override"
+fi
 # Path is resolved from this hook at runtime.
 # shellcheck disable=SC1091
-. "${PLUGIN_ROOT}/lib/install.sh"
+. "${PLUGIN_ROOT}/lib/mise.sh"
 
 configured_version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-latest}"
+configured_version="${configured_version#v}"
+minimum_release_age="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE:-0s}"
+
+if [[ "$configured_version" != latest ]]; then
+  if [[ "$configured_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] &&
+    (( BASH_REMATCH[1] > 0 || BASH_REMATCH[2] >= 8 )); then
+    :
+  else
+    echo "github-actions plugin: invalid CLI version '$configured_version'; expected latest or an exact stable release from 0.8.0 onward" >&2
+    exit 1
+  fi
+fi
 
 case "$(uname -s)" in
   Linux) ;;
@@ -20,6 +39,10 @@ esac
 
 echo "~~~ :github: Prepare workflow"
 
-distribution="$(install_buildkite_gha "$configured_version")"
-trap 'rm -rf -- "$distribution"' EXIT
-"${distribution}/buildkite-gha" plugin
+setup_mise
+export MISE_GITHUB_GH_CLI_TOKENS=false
+export MISE_MINIMUM_RELEASE_AGE="$minimum_release_age"
+export MISE_YES=1
+exec "$MISE_BIN" --no-config exec \
+  "github:buildkite/buildkite-gha@${configured_version}" \
+  -- buildkite-gha plugin
