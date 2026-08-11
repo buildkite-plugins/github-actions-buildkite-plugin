@@ -15,4 +15,4 @@ jobs:
           grep -F 'default: "0.7.1"' plugin.yml
           grep -F 'configured_version:-0.7.1' hooks/command
           grep -F 'buildkite-gha-source-ref:' plugin.yml
-          grep -F 'mise --no-config x go@1.26.5' hooks/command
+          grep -F 'mise --no-config x go@1.26.5' lib/install.sh
