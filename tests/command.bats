@@ -119,7 +119,7 @@ teardown() { rm -rf "$TMP"; }
 @test "uses mise from PATH to select latest and invoke the hidden plugin command" {
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [[ "$output" == *"~~~ :github: Prepare workflow"* ]]
+  [[ "$output" == *"~~~ :github: Prepare workflows"* ]]
   grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
   grep -Fx 'minimum-release-age=0s' "$MOCK_LOG"
   grep -Fx 'github-cli-tokens=false' "$MOCK_LOG"
@@ -134,6 +134,13 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@0.9.0 -- buildkite-gha plugin' "$MOCK_LOG"
   grep -Fx 'minimum-release-age=24h' "$MOCK_LOG"
+}
+
+@test "passes a workflow glob to buildkite-gha without shell expansion" {
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/**/*.yml","runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
 }
 
 @test "builds paired runtimes from one source commit and runs only Linux with the private Darwin path" {

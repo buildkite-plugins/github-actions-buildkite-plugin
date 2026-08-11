@@ -1,5 +1,5 @@
 name: GitHub Actions
-description: Run a GitHub Actions workflow as native Buildkite steps
+description: Run GitHub Actions workflows as native Buildkite steps
 author: https://github.com/buildkite-plugins
 requirements:
   - bash

@@ -11,7 +11,7 @@ During the preview, start with a workflow in a public `github.com` repository th
 
 ## Add a workflow to a pipeline
 
-Add the plugin to a keyed command step in your pipeline configuration. Set `workflow` to the path of the workflow file in your repository:
+Add the plugin to a keyed command step in your pipeline configuration. Set `workflow` to one string containing either a Git glob or a literal workflow path:
 
 ```yaml
 steps:
@@ -19,10 +19,10 @@ steps:
     key: "github-actions"
     plugins:
       - github-actions#v0.9.3:
-          workflow: ".github/workflows/ci.yml"
+          workflow: ".github/workflows/*.yml"
 ```
 
-When this importer step runs, the plugin uploads a dynamic pipeline. Each supported workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key`.
+The selector is matched against files tracked by Git. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key`.
 
 The Git ref after `github-actions#` selects the plugin code. Use a specific release such as `github-actions#v0.9.3` for an immutable pin, or use `github-actions#latest` to follow the newest stable plugin release that has passed the required validation. This is separate from the `version` property below, which selects the `buildkite-gha` runtime.
 
@@ -30,7 +30,7 @@ Configure runtime selection with the following properties:
 
 | Option | Required | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | Yes | — | Path to the GitHub Actions workflow in the repository. |
+| `workflow` | Yes | — | One string containing a Git glob matching tracked GitHub Actions workflows, or a literal workflow path. |
 | `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.9.0` onward. |
 | `source-ref` | No | — | Full `buildkite-gha` source commit to build for development testing; mutually exclusive with `version`. |
 | `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
@@ -42,6 +42,23 @@ Configure runtime selection with the following properties:
 To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build Linux amd64 and Darwin arm64 executables from that exact source, then runs the Linux importer. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
 
 The plugin validates only the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`. It passes all behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
+
+### Select workflows
+
+Matched workflows are sorted and compiled before anything is uploaded. Workflow groups use the workflow's `name`, falling back to its repository path. Reusable workflows whose only trigger is `workflow_call` do not create groups, but remain available to matched callers. The upload fails if the pattern matches no tracked files, matches no directly runnable workflows, or includes a workflow whose trigger cannot be represented safely.
+
+The supported top-level triggers map to group `if` expressions as follows:
+
+| GitHub Actions trigger | Buildkite condition |
+| --- | --- |
+| `push` | GitHub `push` webhook, including supported branch and tag filters |
+| `pull_request` | GitHub `pull_request` webhook, including base-branch and activity-type filters |
+| `workflow_dispatch` | Buildkite UI or API build |
+| `schedule` | Buildkite scheduled build |
+
+Multiple triggers are combined with OR. Path filters and unsupported events or filters fail the upload rather than broadening when the workflow runs. GitHub and Buildkite use different path-diff semantics, so `paths` and `paths-ignore` are not translated.
+
+These conditions select groups in a Buildkite build; they do not configure which GitHub webhooks create builds. Configure the corresponding webhook events in the Buildkite pipeline settings. Buildkite also retains ownership of cron schedules: every workflow with `on.schedule` is eligible during any Buildkite scheduled build.
 
 ## Migrate incrementally
 
@@ -130,11 +147,11 @@ Configured Linux profiles select an immutable hosted-toolchains image and enable
 
 ## Configure triggers and GitHub context
 
-Buildkite Pipelines controls when builds run. Configure branch, tag, schedule, and pull request triggers in Buildkite. The workflow's `on` key does not create Buildkite Pipelines triggers.
+Buildkite Pipelines controls when builds run. Configure branch, tag, schedule, and pull request triggers in Buildkite. The workflows' `on` keys select groups after a build exists; they do not create Buildkite Pipelines triggers.
 
 For manual and scheduled builds, the plugin finds the exact commit from the checked-out repository when `BUILDKITE_COMMIT` does not already contain a full commit SHA.
 
-Pull request builds receive `pull_request` context. Branch, tag, scheduled, and manual builds receive `push` context. Scheduled and manual builds work only with workflows that can run with `push` event data because the runtime does not provide `schedule`, `workflow_dispatch`, or dispatch inputs.
+Pull request builds receive `pull_request` context. Branch and tag builds receive `push` context. Buildkite scheduled builds select workflows with a `schedule` trigger, while manual UI or API builds select workflows with `workflow_dispatch`; dispatch inputs are not available.
 
 ## Configure checkout and credentials
 
