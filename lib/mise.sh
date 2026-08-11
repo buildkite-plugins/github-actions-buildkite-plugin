@@ -53,7 +53,7 @@ install_mise() (
 
   destination_dir="$(dirname "$MISE_BIN")"
   mkdir -p "$destination_dir"
-  archive="$(mktemp "${TMPDIR:-/tmp}/mise.XXXXXX.tar.gz")"
+  archive="$(mktemp "${TMPDIR:-/tmp}/mise.tar.gz.XXXXXX")"
   extracted="$(mktemp -d "${TMPDIR:-/tmp}/mise.XXXXXX")"
   staged="$(mktemp "${destination_dir}/.mise.XXXXXX")"
   trap 'rm -rf -- "$archive" "$extracted" "$staged"' EXIT
