@@ -69,12 +69,13 @@ cp "${MOCK_MISE_ARCHIVE:?}" "$out"
 EOF
   cat > "$TMP/bin/sha256sum" <<'EOF'
 #!/usr/bin/env bash
-input="$(cat)"
-printf 'sha256sum=%s args=%s\n' "$input" "$*" >> "${MOCK_LOG:?}"
-[[ "${MOCK_CHECKSUM_FAILURE:-}" != 1 ]]
+printf 'sha256sum=%s\n' "$*" >> "${MOCK_LOG:?}"
+[[ "${MOCK_CHECKSUM_FAILURE:-}" != 1 ]] || exit 1
+printf '%s  %s\n' "${MOCK_MISE_SHA256:?}" "$1"
 EOF
   chmod +x "$TMP/bin/curl" "$TMP/bin/sha256sum"
   export MOCK_MISE_ARCHIVE="$TMP/mise.tar.gz"
+  export MOCK_MISE_SHA256=7d49c0c3633572f57e2383aec5284067675122b6824990f6ac927c5a40c81994
   export MISE_DATA_DIR="$TMP/mise-data"
   export PATH="$TMP/bin:/usr/bin:/bin"
 }
@@ -170,7 +171,7 @@ EOF
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [[ "$output" == *"installing mise 2026.8.4"* ]]
   grep -F 'curl=--disable --fail --silent --show-error --location --proto =https --proto-redir =https --tlsv1.2 https://github.com/jdx/mise/releases/download/v2026.8.4/mise-v2026.8.4-linux-x64-musl.tar.gz --output ' "$MOCK_LOG"
-  grep -F 'sha256sum=7d49c0c3633572f57e2383aec5284067675122b6824990f6ac927c5a40c81994  ' "$MOCK_LOG"
+  grep -F 'sha256sum=' "$MOCK_LOG"
   [ -x "$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.8.4/mise" ]
   grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
 
@@ -184,9 +185,10 @@ EOF
 @test "replaces an old mise and stops when bootstrap verification fails" {
   prepare_bootstrap
   write_mise "$TMP/bin/mise" 2025.1.0
-  export MOCK_CHECKSUM_FAILURE=1
+  export MOCK_MISE_SHA256=0000000000000000000000000000000000000000000000000000000000000000
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
   [[ "$output" == *"mise on PATH is older than 2026.5.12"* ]]
+  [[ "$output" == *"mise release archive checksum verification failed"* ]]
   ! grep -q '^mise=--no-config exec ' "$MOCK_LOG"
 }

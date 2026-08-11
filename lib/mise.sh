@@ -43,7 +43,7 @@ mise_data_dir() {
 }
 
 install_mise() (
-  local destination_dir archive extracted staged url
+  local destination_dir archive extracted staged url checksum_output actual_checksum
   for command in curl tar sha256sum mktemp cp; do
     command -v "$command" >/dev/null 2>&1 || {
       mise_error "required command '$command' was not found"
@@ -63,10 +63,15 @@ install_mise() (
   curl --disable --fail --silent --show-error --location \
     --proto '=https' --proto-redir '=https' --tlsv1.2 \
     "$url" --output "$archive"
-  printf '%s  %s\n' "$MISE_BOOTSTRAP_SHA256" "$archive" | sha256sum --check --status
+  checksum_output="$(sha256sum "$archive")"
+  actual_checksum="${checksum_output%% *}"
+  [[ "$actual_checksum" == "$MISE_BOOTSTRAP_SHA256" ]] || {
+    mise_error "mise release archive checksum verification failed"
+    return 1
+  }
 
   unset TAR_OPTIONS GZIP
-  tar --no-same-owner -xzf "$archive" -C "$extracted"
+  tar -xozf "$archive" -C "$extracted"
   [[ -f "$extracted/mise/bin/mise" && ! -L "$extracted/mise/bin/mise" ]] || {
     mise_error "mise release archive has an unexpected layout"
     return 1
