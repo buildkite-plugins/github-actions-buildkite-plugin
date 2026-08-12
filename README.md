@@ -11,7 +11,7 @@ During the preview, start with a workflow in a public `github.com` repository th
 
 ## Add workflows to a pipeline
 
-Add the plugin to a keyed command step in your pipeline configuration. List each workflow you want to import explicitly:
+Add the plugin to a keyed command step in your pipeline configuration. Select the workflow you want to import explicitly:
 
 ```yaml
 steps:
@@ -19,11 +19,10 @@ steps:
     key: "github-actions"
     plugins:
       - github-actions#v0.10.0:
-          workflows:
-            - .github/workflows/ci.yml
+          workflow: .github/workflows/ci.yml
 ```
 
-Each entry must be an explicit path to a tracked `.yml` or `.yaml` workflow file. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key`.
+The selector must be an explicit path to a tracked `.yml` or `.yaml` workflow file. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key`.
 
 The Git ref after `github-actions#` selects the plugin code. Use a specific release such as `github-actions#v0.10.0` for an immutable pin, or use `github-actions#latest` to follow the newest stable plugin release that has passed the required validation. This is separate from the `version` property below, which selects the `buildkite-gha` runtime.
 
@@ -31,7 +30,8 @@ Configure runtime selection with the following properties:
 
 | Option | Required | Default | Description |
 | --- | --- | --- | --- |
-| `workflows` | Yes | — | Non-empty array of explicit tracked `.yml` or `.yaml` workflow paths. |
+| `workflow` | One of `workflow` or `workflows` | — | One explicit tracked `.yml` or `.yaml` workflow path. |
+| `workflows` | One of `workflow` or `workflows` | — | Non-empty array of explicit tracked `.yml` or `.yaml` workflow paths. |
 | `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.9.0` onward. |
 | `source-ref` | No | — | Full `buildkite-gha` source commit to build for development testing; mutually exclusive with `version`. |
 | `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
@@ -42,11 +42,19 @@ Configure runtime selection with the following properties:
 
 To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build Linux amd64 and Darwin arm64 executables from that exact source, then runs the Linux importer. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
 
-The plugin schema validates the required `workflows` array and the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
+The plugin schema requires exactly one of `workflow` or `workflows` and validates its explicit paths, along with the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
 
 ### Select workflows
 
-Use a non-empty array to select explicit workflow paths:
+Use `workflow` as the simple form for one explicit path:
+
+```yaml
+plugins:
+  - github-actions#v0.10.0:
+      workflow: .github/workflows/ci.yml
+```
+
+Use the non-empty `workflows` array when importing multiple explicit paths:
 
 ```yaml
 plugins:
@@ -56,7 +64,7 @@ plugins:
         - .github/workflows/release.yml
 ```
 
-Every entry must identify one regular, tracked `.yml` or `.yaml` file inside the repository. Directories, globs, and wildcard selectors are not accepted. Selected paths are canonicalized, sorted, and deduplicated before upload.
+Configure exactly one selector form. Each value must identify one regular, tracked `.yml` or `.yaml` file inside the repository. Empty values and arrays, directories, globs, and wildcard selectors are not accepted. Selected paths are canonicalized, sorted, and deduplicated before upload.
 
 Matched workflows are compiled and uploaded atomically. Workflow groups use the workflow's `name`, falling back to its repository path. Reusable workflows whose only trigger is `workflow_call` do not create groups, but remain available to matched callers. The upload fails if a selector matches no tracked files, the selection contains no directly runnable workflows, or a workflow's trigger cannot be represented safely.
 
@@ -83,8 +91,7 @@ steps:
     key: "github-actions-tests"
     plugins:
       - github-actions#v0.10.0:
-          workflows:
-            - .github/workflows/ci.yml
+          workflow: .github/workflows/ci.yml
 
   - label: "Deploy"
     key: "deploy"
@@ -134,8 +141,7 @@ steps:
     key: "github-actions"
     plugins:
       - github-actions#v0.10.0:
-          workflows:
-            - .github/workflows/ci.yml
+          workflow: .github/workflows/ci.yml
           runners:
             - runs-on: ubuntu-latest
               queue: hosted
@@ -188,8 +194,7 @@ steps:
     cache: "/cache/bkcache/mise"
     plugins:
       - github-actions#v0.10.0:
-          workflows:
-            - .github/workflows/ci.yml
+          workflow: .github/workflows/ci.yml
 ```
 
 Without this volume, mise uses the agent or user data directory. Treat the mise data directory as executable state: do not share it with untrusted jobs or principals that can modify it. This importer cache is separate from generated-job runtime caching and the workflow's `actions/cache` behavior.
