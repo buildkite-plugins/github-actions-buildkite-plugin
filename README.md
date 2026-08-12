@@ -18,7 +18,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.8.0:
+      - github-actions#v0.9.0:
           workflow: ".github/workflows/ci.yml"
 ```
 
@@ -50,7 +50,7 @@ steps:
   - label: ":github: Tests"
     key: "github-actions-tests"
     plugins:
-      - github-actions#v0.8.0:
+      - github-actions#v0.9.0:
           workflow: ".github/workflows/ci.yml"
 
   - label: "Deploy"
@@ -153,7 +153,7 @@ steps:
     key: "github-actions"
     cache: "/cache/bkcache/mise"
     plugins:
-      - github-actions#v0.8.0:
+      - github-actions#v0.9.0:
           workflow: ".github/workflows/ci.yml"
 ```
 
