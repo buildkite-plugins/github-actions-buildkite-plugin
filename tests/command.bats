@@ -4,7 +4,7 @@ setup() {
   REPO="$BATS_TEST_DIRNAME/.."
   TMP="$(mktemp -d)"
   export MOCK_LOG="$TMP/mock.log"
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/ci.yml","runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflows":".github/workflows/ci.yml","runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
   export BUILDKITE_COMMIT=1111111111111111111111111111111111111111
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION BUILDKITE_PLUGIN__VERSION
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF
@@ -137,7 +137,7 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "passes a workflow glob to buildkite-gha without shell expansion" {
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/**/*.yml","runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflows":".github/workflows/**/*.yml","runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
@@ -228,7 +228,7 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "passes future behavioral configuration through unchanged" {
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":"ci.yml","future":{"nested":[true,3]},"runners":"validated-by-buildkite-gha"}'
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflows":"ci.yml","future":{"nested":[true,3]},"runners":"validated-by-buildkite-gha"}'
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"

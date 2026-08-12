@@ -11,7 +11,7 @@ During the preview, start with a workflow in a public `github.com` repository th
 
 ## Add a workflow to a pipeline
 
-Add the plugin to a keyed command step in your pipeline configuration. Set `workflow` to one string containing either a Git glob or a literal workflow path:
+Add the plugin to a keyed command step in your pipeline configuration. Set `workflows` to one string containing either a Git glob or a literal workflow path:
 
 ```yaml
 steps:
@@ -19,7 +19,7 @@ steps:
     key: "github-actions"
     plugins:
       - github-actions#v0.9.3:
-          workflow: ".github/workflows/*.yml"
+          workflows: ".github/workflows/*.yml"
 ```
 
 The selector is matched against files tracked by Git. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key`.
@@ -30,7 +30,7 @@ Configure runtime selection with the following properties:
 
 | Option | Required | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | Yes | — | One string containing a Git glob matching tracked GitHub Actions workflows, or a literal workflow path. |
+| `workflows` | Yes | — | One string containing a Git glob matching tracked GitHub Actions workflows, or a literal workflow path. Arrays are not supported. |
 | `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.9.0` onward. |
 | `source-ref` | No | — | Full `buildkite-gha` source commit to build for development testing; mutually exclusive with `version`. |
 | `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
@@ -70,7 +70,7 @@ steps:
     key: "github-actions-tests"
     plugins:
       - github-actions#v0.9.3:
-          workflow: ".github/workflows/ci.yml"
+          workflows: ".github/workflows/ci.yml"
 
   - label: "Deploy"
     key: "deploy"
@@ -120,7 +120,7 @@ steps:
     key: "github-actions"
     plugins:
       - github-actions#v0.9.3:
-          workflow: ".github/workflows/ci.yml"
+          workflows: ".github/workflows/ci.yml"
           runners:
             - runs-on: ubuntu-latest
               queue: hosted
@@ -173,7 +173,7 @@ steps:
     cache: "/cache/bkcache/mise"
     plugins:
       - github-actions#v0.9.3:
-          workflow: ".github/workflows/ci.yml"
+          workflows: ".github/workflows/ci.yml"
 ```
 
 Without this volume, mise uses the agent or user data directory. Treat the mise data directory as executable state: do not share it with untrusted jobs or principals that can modify it. This importer cache is separate from generated-job runtime caching and the workflow's `actions/cache` behavior.
