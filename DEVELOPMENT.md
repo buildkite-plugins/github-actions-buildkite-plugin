@@ -31,6 +31,8 @@ The Buildkite Pipelines build runs a required released-runtime smoke test that:
 
 This test uses Linux x86-64 Buildkite hosted agents but does not need configured secrets or a cache service.
 
+The same build also runs a source smoke with a pinned full `buildkite-gha` commit. It verifies that `source-ref` installs the required Go toolchain, builds the selected source, and runs the generated job without replacing the released-runtime smoke.
+
 ## Release the plugin
 
 Plugin releases are Git tags and contain no generated assets. Before you create a `v0.x.y` tag:
