@@ -39,6 +39,7 @@ Plugin releases are Git tags and contain no generated assets. Before you create 
 1. Verify that the default runtime version has a public `buildkite/buildkite-gha` release.
 1. Review the compatibility and security documentation at that runtime tag rather than using the potentially unreleased behavior on `main`.
 1. Confirm that the released-runtime smoke test selects and verifies that release through mise.
+1. Update every `github-actions#vX.Y.Z` reference in `README.md` to the plugin version being released; the plugin linter accepts this prospective version on `main` and requires it on the tag build.
 1. Wait for the Buildkite Pipelines build for `main` to pass.
 
 When changing runtime integration, update `plugin.yml`, `hooks/command`, `.github/workflows/plugin-smoke.yml`, `tests/command.bats`, and the README together. Make sure the examples and versioned compatibility and security links describe the recommended runtime release.
