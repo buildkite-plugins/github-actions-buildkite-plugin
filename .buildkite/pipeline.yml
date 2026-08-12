@@ -43,8 +43,8 @@ steps:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
           plugins:
             - github-actions#$$commit:
-                workflow: .buildkite/fixtures/plugin-release-linux.yml
-                version: 0.9.0
+                workflows: .buildkite/fixtures/plugin-release-linux.yml
+                version: 0.10.1
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
@@ -62,8 +62,8 @@ steps:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
           plugins:
             - github-actions#$$commit:
-                workflow: .buildkite/fixtures/plugin-release-mixed.yml
-                version: 0.9.0
+                workflows: .buildkite/fixtures/plugin-release-mixed.yml
+                version: 0.10.1
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
@@ -80,8 +80,8 @@ steps:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
           plugins:
             - github-actions#$$commit:
-                workflow: .buildkite/fixtures/plugin-release-macos.yml
-                version: 0.9.0
+                workflows: .buildkite/fixtures/plugin-release-macos.yml
+                version: 0.10.1
                 runners:
                   - runs-on: macos-14
                     queue: macos
@@ -96,8 +96,8 @@ steps:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
           plugins:
             - github-actions#$$commit:
-                workflow: .github/workflows/plugin-source-smoke.yml
-                source-ref: 782270db1b6d400f38b434aeee6d2e93f3634b45
+                workflows: .github/workflows/plugin-source-smoke.yml
+                source-ref: 89d7f9ec37a3972b4b5082739b1c25b8492689de
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
@@ -112,8 +112,8 @@ steps:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
           plugins:
             - github-actions#$$commit:
-                workflow: .buildkite/fixtures/plugin-source-mixed.yml
-                source-ref: 782270db1b6d400f38b434aeee6d2e93f3634b45
+                workflows: .buildkite/fixtures/plugin-source-mixed.yml
+                source-ref: 89d7f9ec37a3972b4b5082739b1c25b8492689de
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
@@ -130,8 +130,8 @@ steps:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
           plugins:
             - github-actions#$$commit:
-                workflow: .buildkite/fixtures/plugin-source-macos.yml
-                source-ref: 782270db1b6d400f38b434aeee6d2e93f3634b45
+                workflows: .buildkite/fixtures/plugin-source-macos.yml
+                source-ref: 89d7f9ec37a3972b4b5082739b1c25b8492689de
                 runners:
                   - runs-on: macos-14
                     queue: macos
