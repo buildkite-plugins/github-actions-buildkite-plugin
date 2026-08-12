@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+set -euo pipefail
+set +x
+umask 077
+
+readonly canonical_remote="https://github.com/buildkite-plugins/github-actions-buildkite-plugin.git"
+readonly latest_remote_ref="refs/tags/latest"
+readonly release_tag="${BUILDKITE_TAG:-}"
+readonly release_commit="${BUILDKITE_COMMIT:-}"
+readonly max_push_attempts=3
+readonly ref_namespace="refs/buildkite/update-latest/$$"
+readonly release_local_ref="${ref_namespace}/release"
+readonly latest_local_ref="${ref_namespace}/latest"
+
+askpass=""
+latest_oid=""
+latest_commit=""
+
+cleanup() {
+  git update-ref -d "$release_local_ref" >/dev/null 2>&1 || true
+  git update-ref -d "$latest_local_ref" >/dev/null 2>&1 || true
+  if [[ -n "$askpass" ]]; then
+    rm -f "$askpass"
+  fi
+  unset release_token
+}
+trap cleanup EXIT
+
+fail() {
+  echo "update-latest-tag: $*" >&2
+  exit 1
+}
+
+if [[ ! "$release_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  fail "BUILDKITE_TAG must be a stable vX.Y.Z tag"
+fi
+if [[ ! "$release_commit" =~ ^[0-9a-f]{40}$ ]]; then
+  fail "BUILDKITE_COMMIT must be a full lowercase commit SHA"
+fi
+
+head_commit="$(git rev-parse --verify 'HEAD^{commit}')"
+if [[ "$head_commit" != "$release_commit" ]]; then
+  fail "HEAD resolves to $head_commit, not BUILDKITE_COMMIT $release_commit"
+fi
+
+release_remote_ref="refs/tags/${release_tag}"
+release_remote_line="$(git ls-remote --refs "$canonical_remote" "$release_remote_ref")"
+if [[ -z "$release_remote_line" ]]; then
+  fail "canonical remote does not contain $release_remote_ref"
+fi
+read -r release_oid release_ref extra <<< "$release_remote_line"
+if [[ ! "$release_oid" =~ ^[0-9a-f]{40}$ || "$release_ref" != "$release_remote_ref" || -n "${extra:-}" ]]; then
+  fail "canonical remote returned an invalid $release_remote_ref"
+fi
+
+git fetch --quiet --no-tags "$canonical_remote" \
+  "${release_remote_ref}:${release_local_ref}"
+fetched_release_oid="$(git rev-parse --verify "$release_local_ref")"
+if [[ "$fetched_release_oid" != "$release_oid" ]]; then
+  fail "$release_remote_ref changed while it was being verified"
+fi
+canonical_release_commit="$(git rev-parse --verify "${release_local_ref}^{commit}")"
+if [[ "$canonical_release_commit" != "$release_commit" ]]; then
+  fail "$release_remote_ref resolves to $canonical_release_commit, not BUILDKITE_COMMIT $release_commit"
+fi
+
+observe_latest() {
+  local remote_line ref extra
+
+  git update-ref -d "$latest_local_ref" >/dev/null 2>&1 || true
+  remote_line="$(git ls-remote --refs "$canonical_remote" "$latest_remote_ref")"
+  if [[ -z "$remote_line" ]]; then
+    latest_oid=""
+    latest_commit=""
+    return
+  fi
+
+  read -r latest_oid ref extra <<< "$remote_line"
+  if [[ ! "$latest_oid" =~ ^[0-9a-f]{40}$ || "$ref" != "$latest_remote_ref" || -n "${extra:-}" ]]; then
+    fail "canonical remote returned an invalid $latest_remote_ref"
+  fi
+
+  git fetch --quiet --no-tags "$canonical_remote" \
+    "${latest_remote_ref}:${latest_local_ref}"
+  if [[ "$(git rev-parse --verify "$latest_local_ref")" != "$latest_oid" ]]; then
+    fail "$latest_remote_ref changed while it was being inspected"
+  fi
+  latest_commit="$(git rev-parse --verify "${latest_local_ref}^{commit}")"
+}
+
+check_update_is_forward() {
+  if [[ -z "$latest_oid" || "$latest_oid" == "$release_commit" ]]; then
+    return
+  fi
+  if git merge-base --is-ancestor "$latest_commit" "$release_commit"; then
+    return
+  fi
+  if git merge-base --is-ancestor "$release_commit" "$latest_commit"; then
+    fail "refusing to move latest backwards from $latest_commit to $release_commit"
+  fi
+  fail "refusing to move latest across divergent history ($latest_commit to $release_commit)"
+}
+
+observe_latest
+check_update_is_forward
+if [[ "$latest_oid" == "$release_commit" ]]; then
+  echo "update-latest-tag: latest already points directly to $release_commit"
+  exit 0
+fi
+
+agent_binary="${BUILDKITE_AGENT_BINARY:-buildkite-agent}"
+release_token="$("$agent_binary" secret get GITHUB_ACTIONS_PLUGIN_RELEASE_TOKEN)"
+if [[ -z "$release_token" || "$release_token" == *$'\n'* ]]; then
+  fail "GITHUB_ACTIONS_PLUGIN_RELEASE_TOKEN is empty or invalid"
+fi
+askpass="$(mktemp)"
+cat > "$askpass" <<'ASKPASS'
+#!/usr/bin/env bash
+case "${1:-}" in
+  *Username*) printf '%s\n' 'x-access-token' ;;
+  *Password*) printf '%s\n' "${BUILDKITE_LATEST_TAG_GITHUB_TOKEN:?}" ;;
+  *) exit 1 ;;
+esac
+ASKPASS
+chmod 700 "$askpass"
+
+for ((attempt = 1; attempt <= max_push_attempts; attempt++)); do
+  if BUILDKITE_LATEST_TAG_GITHUB_TOKEN="$release_token" \
+    GIT_ASKPASS="$askpass" \
+    GIT_TERMINAL_PROMPT=0 \
+    GIT_TRACE_CURL=0 \
+    GIT_CURL_VERBOSE=0 \
+    GIT_TRACE_REDACT=1 \
+    git -c credential.helper= \
+    -c credential.username=x-access-token \
+    -c http.extraHeader= \
+    push --porcelain --no-follow-tags "$canonical_remote" \
+    "--force-with-lease=${latest_remote_ref}:${latest_oid}" \
+    "${release_commit}:${latest_remote_ref}"; then
+    echo "update-latest-tag: moved latest to $release_tag ($release_commit)"
+    exit 0
+  fi
+
+  previous_oid="$latest_oid"
+  observe_latest
+  if [[ "$latest_oid" == "$previous_oid" ]]; then
+    fail "push was rejected without a concurrent latest update; check the credential and GitHub tag rules"
+  fi
+  check_update_is_forward
+  if [[ "$latest_oid" == "$release_commit" ]]; then
+    echo "update-latest-tag: latest was concurrently moved to $release_commit"
+    exit 0
+  fi
+  if (( attempt == max_push_attempts )); then
+    fail "latest changed concurrently during all $max_push_attempts push attempts"
+  fi
+  echo "update-latest-tag: latest changed concurrently; retrying with a fresh lease" >&2
+done

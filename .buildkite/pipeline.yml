@@ -1,15 +1,19 @@
 steps:
   - label: ":sparkles: Tests"
+    key: "plugin-tests"
     plugins:
       - plugin-tester#v1.3.0: ~
   - label: ":lint-roller: Plugin lint"
+    key: "plugin-lint"
     plugins:
       - plugin-linter#v3.3.0:
           id: github-actions
   - label: ":shell: Shellcheck"
+    key: "shellcheck"
     plugins:
       - shellcheck#v1.4.0:
           files:
+            - .buildkite/scripts/*
             - hooks/*
             - lib/*
   - label: ":pipeline: Load live plugin smoke"
@@ -23,7 +27,7 @@ steps:
       set -euo pipefail
       commit="$${BUILDKITE_COMMIT:?BUILDKITE_COMMIT is required}"
       [[ "$$commit" =~ ^[0-9a-f]{40}$$ ]]
-      cat <<YAML | buildkite-agent pipeline upload
+      cat <<YAML | buildkite-agent pipeline upload --no-interpolation
       steps:
         - label: ":github: Live plugin smoke"
           key: "live-plugin-smoke-importer"
@@ -52,4 +56,19 @@ steps:
             - github-actions#$$commit:
                 workflow: .github/workflows/plugin-source-smoke.yml
                 source-ref: a0e5416751456411fa09f5cf62421622e6cb57f7
+        - label: ":github: Update latest plugin tag"
+          key: "update-latest-plugin-tag"
+          if: 'build.tag =~ /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$$/'
+          depends_on:
+            - "plugin-tests"
+            - "plugin-lint"
+            - "shellcheck"
+            - "live-plugin-smoke-importer"
+            - "live-source-ref-smoke-importer"
+          agents:
+            queue: "hosted"
+          timeout_in_minutes: 10
+          retry:
+            automatic: false
+          command: .buildkite/scripts/update-latest-tag
       YAML
