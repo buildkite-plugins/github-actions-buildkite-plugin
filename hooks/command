@@ -48,7 +48,7 @@ case "$(uname -m)" in
   *) echo "github-actions plugin: unsupported architecture '$(uname -m)'; only Linux x86-64 is supported" >&2; exit 1 ;;
 esac
 
-echo "~~~ :github: Prepare workflow"
+echo "~~~ :github: Prepare workflows"
 
 setup_mise
 export MISE_YES=1
