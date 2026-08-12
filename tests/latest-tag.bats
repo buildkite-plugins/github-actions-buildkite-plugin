@@ -15,7 +15,8 @@ setup() {
   : > "$PUSH_LOG"
 
   "$REAL_GIT" init --quiet --bare "$REMOTE"
-  "$REAL_GIT" init --quiet --initial-branch=main "$WORK"
+  "$REAL_GIT" init --quiet "$WORK"
+  "$REAL_GIT" -C "$WORK" symbolic-ref HEAD refs/heads/main
   "$REAL_GIT" -C "$WORK" config user.name Test
   "$REAL_GIT" -C "$WORK" config user.email test@example.com
   printf 'one\n' > "$WORK/file"
