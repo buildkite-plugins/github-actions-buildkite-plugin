@@ -4,7 +4,7 @@ on:
   push:
 
 jobs:
-  linux:
+  mixed-linux:
     name: Verify configured Linux default image
     runs-on: ubuntu-latest
     steps:
@@ -15,9 +15,9 @@ jobs:
           test "${RUNNER_OS:-}" = Linux
           test -d /opt/hostedtoolcache
 
-  macos:
+  mixed-macos:
     name: Verify Linux to macOS dependency
-    needs: linux
+    needs: mixed-linux
     runs-on: macos-14
     steps:
       - name: Verify macOS runtime

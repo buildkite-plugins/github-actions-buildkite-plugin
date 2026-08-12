@@ -4,7 +4,7 @@ on:
   push:
 
 jobs:
-  macos:
+  macos-only:
     name: Verify macOS-only graph
     runs-on: macos-14
     steps:
