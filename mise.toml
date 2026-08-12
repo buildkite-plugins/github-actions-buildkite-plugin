@@ -1,0 +1,99 @@
+[settings]
+lockfile = true
+
+[tools]
+bats = "1.14.0"
+github-cli = "2.97.0"
+shellcheck = "0.11.0"
+
+[tasks.test]
+description = "Run the offline Bats suite"
+run = "bats tests"
+
+[tasks.lint]
+description = "Run ShellCheck"
+run = "shellcheck hooks/* lib/*"
+
+[tasks.check]
+description = "Run all local checks"
+depends = ["test", "lint"]
+
+[tasks."release:tag"]
+description = "Push an immutable stable plugin tag"
+depends = ["check"]
+usage = 'arg "<tag>" help="Stable plugin tag, for example v0.9.4"'
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+tag="${usage_tag:?}"
+remote="https://github.com/buildkite-plugins/github-actions-buildkite-plugin.git"
+
+[[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+  echo "release tag must be a stable vX.Y.Z version" >&2
+  exit 1
+}
+[[ "$(git branch --show-current)" == main ]] || { echo "release from the main branch" >&2; exit 1; }
+[[ -z "$(git status --porcelain)" ]] || { echo "release from a clean worktree" >&2; exit 1; }
+
+commit="$(git rev-parse HEAD)"
+[[ "$commit" == "$(git ls-remote --heads "$remote" refs/heads/main | cut -f1)" ]] || {
+  echo "local main must match canonical main" >&2
+  exit 1
+}
+[[ "$(grep -oE 'github-actions#v[0-9]+\.[0-9]+\.[0-9]+' README.md | sort -u)" == "github-actions#$tag" ]] || {
+  echo "README plugin references must all use $tag" >&2
+  exit 1
+}
+! git ls-remote --exit-code --refs --tags "$remote" "refs/tags/$tag" >/dev/null 2>&1 || {
+  echo "$tag already exists on the canonical remote" >&2
+  exit 1
+}
+
+git push "$remote" "$commit:refs/tags/$tag"
+'''
+
+[tasks."release:publish"]
+description = "Publish a validated plugin release and promote latest"
+usage = 'arg "<tag>" help="Existing stable plugin tag, for example v0.9.4"'
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+tag="${usage_tag:?}"
+repository="buildkite-plugins/github-actions-buildkite-plugin"
+remote="https://github.com/$repository.git"
+
+[[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+  echo "release tag must be a stable vX.Y.Z version" >&2
+  exit 1
+}
+
+git fetch "$remote" "refs/tags/$tag:refs/tags/$tag"
+[[ "$(git cat-file -t "refs/tags/$tag")" == commit ]] || {
+  echo "$tag must be an existing lightweight tag" >&2
+  exit 1
+}
+release_commit="$(git rev-parse "refs/tags/$tag")"
+[[ "$(git ls-remote --refs "$remote" "refs/tags/$tag" | cut -f1)" == "$release_commit" ]] || {
+  echo "local and remote $tag do not match" >&2
+  exit 1
+}
+
+latest_oid="$(git ls-remote --refs "$remote" refs/tags/latest | cut -f1)"
+if [[ -n "$latest_oid" ]]; then
+  git fetch --quiet --force "$remote" refs/tags/latest:refs/tags/latest
+  latest_commit="$(git rev-parse 'refs/tags/latest^{commit}')"
+  git merge-base --is-ancestor "$latest_commit" "$release_commit" || {
+    echo "refusing to move latest backwards or across divergent history" >&2
+    exit 1
+  }
+fi
+
+if gh release view "$tag" --repo "$repository" >/dev/null 2>&1; then
+  gh release edit "$tag" --repo "$repository" --latest
+else
+  gh release create "$tag" --repo "$repository" --verify-tag --generate-notes --title "$tag" --latest
+fi
+git push "$remote" "--force-with-lease=refs/tags/latest:$latest_oid" "$release_commit:refs/tags/latest"
+'''
