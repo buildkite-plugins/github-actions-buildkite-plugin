@@ -108,7 +108,7 @@ GIT
   [[ "$release_block" == *'- "live-plugin-smoke-importer"'* ]]
   [[ "$release_block" == *'- "live-source-ref-smoke-importer"'* ]]
   grep -F 'buildkite-agent pipeline upload --no-interpolation' "$pipeline"
-  [[ "$release_block" == *'if: '\''build.tag =~ /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$$/'\'''* ]]
+  [[ "$release_block" == *'if: '\''build.tag != null && build.tag =~ /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$$/'\'''* ]]
   [[ "$release_block" == *'command: .buildkite/scripts/update-latest-tag'* ]]
   [[ "$release_block" != *allow_dependency_failure* ]]
 }

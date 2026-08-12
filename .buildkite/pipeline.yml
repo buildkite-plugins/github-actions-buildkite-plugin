@@ -1,8 +1,11 @@
 steps:
   - label: ":sparkles: Tests"
     key: "plugin-tests"
-    plugins:
-      - plugin-tester#v1.3.0: ~
+    command: |
+      docker run --rm -t \
+        -v "$$PWD:/plugin" \
+        buildkite/plugin-tester:v4.3.0 \
+        sh -c 'apk add --no-cache git >/dev/null && bats tests'
   - label: ":lint-roller: Plugin lint"
     key: "plugin-lint"
     plugins:
@@ -58,7 +61,7 @@ steps:
                 source-ref: a0e5416751456411fa09f5cf62421622e6cb57f7
         - label: ":github: Update latest plugin tag"
           key: "update-latest-plugin-tag"
-          if: 'build.tag =~ /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$$/'
+          if: 'build.tag != null && build.tag =~ /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$$/'
           depends_on:
             - "plugin-tests"
             - "plugin-lint"
