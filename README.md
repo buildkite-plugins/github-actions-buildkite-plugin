@@ -32,11 +32,14 @@ Configure runtime selection with the following properties:
 | `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.8.0` onward. |
 | `source-ref` | No | — | Full `buildkite-gha` source commit to build for development testing; mutually exclusive with `version`. |
 | `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
+| `runners` | No | — | Exact `runs-on` mappings to Buildkite queues and optional immutable Linux image overrides. |
 
 > [!NOTE]
 > Plugin and runtime versions are independent. Pin `version` to keep release-version selection stable, or use `latest` to follow stable runtime releases. Increase `minimum-release-age` (for example, to `24h`) to delay newly published releases. If you update the runtime version, use its matching compatibility guide.
 
 To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build that source before running `buildkite-gha plugin`. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
+
+The plugin validates only the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`. It passes all behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
 
 ## Migrate incrementally
 
@@ -65,7 +68,7 @@ The plugin and the `buildkite-gha` runtime work together to run the workflow:
 - The plugin uses an existing compatible `mise`, or installs a pinned verified copy, then asks mise to select and run the configured `buildkite-gha` release or source commit.
 - The hidden `buildkite-gha plugin` command reads the plugin configuration, checks that the workflow is supported, converts its jobs into Buildkite Pipelines command jobs, uploads them, and runs each generated job.
 
-You do not need to install `mise` or `buildkite-gha`. For releases, mise verifies the selected Linux x86-64 runtime, then caches the installation before running it.
+You do not need to install `mise` or `buildkite-gha`. Mise verifies the selected Linux x86-64 importer release when installing it, then caches the installation before running it. When a compiled workflow requires macOS, that exact importer release verifies and stages its paired Darwin arm64 runtime; Linux-only workflows do not acquire it.
 
 Generated jobs that use JavaScript actions also prepare a verified, managed `mise` installation for the supported Node.js versions. Shell-only generated jobs and jobs that use only native adapters or Docker do not install `mise`.
 
@@ -81,27 +84,33 @@ The importer step needs:
 - Git when `BUILDKITE_COMMIT` is not already a full commit SHA.
 - Outbound HTTPS access to public GitHub release and action sources.
 
-Generated jobs need a Linux x86-64 execution environment and Buildkite agent v3.130.0 or later. They can run on [Buildkite hosted agents](https://buildkite.com/docs/agent/buildkite-hosted), the [Agent Stack for Kubernetes](https://buildkite.com/docs/agent/self-hosted/agent-stack-k8s), or other self-hosted agents that provide the tools used by the workflow. The runtime tells the agent to skip its usual repository checkout so that it can prepare the workflow workspace instead.
+Generated jobs need Buildkite agent v3.130.0 or later and an execution environment matching their runner mapping. Linux x86-64 jobs can run on [Buildkite hosted agents](https://buildkite.com/docs/agent/buildkite-hosted), the [Agent Stack for Kubernetes](https://buildkite.com/docs/agent/self-hosted/agent-stack-k8s), or other self-hosted agents that provide the workflow's tools. Supported macOS labels require a native Darwin arm64 queue. The runtime tells the agent to skip its usual repository checkout so that it can prepare the workflow workspace instead.
 
 Depending on the workflow, generated-job hosts also need:
 
 - `git` available on `PATH` for `actions/checkout`.
 - Docker and Docker Buildx available on `PATH` for Dockerfile actions. The default Buildx builder must use the local `docker` driver.
 
-## Select a queue
+## Map runner labels to queues and images
 
-Generated jobs use the pipeline or organization default agents unless you choose a queue. To send every generated job to a specific queue, set `BUILDKITE_GHA_TARGET_QUEUE` on the importer step:
+Use `runners` to map an exact GitHub `runs-on` label to a Buildkite queue. Configured `ubuntu-latest` and `ubuntu-24.04` profiles use the Noble hosted-toolchains image by default; `ubuntu-22.04` uses Jammy. A Linux mapping may override that default with another digest-pinned image:
 
 ```yaml
 steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
-    env:
-      BUILDKITE_GHA_TARGET_QUEUE: "gha-preview"
     plugins:
       - github-actions#v0.8.0:
           workflow: ".github/workflows/ci.yml"
+          runners:
+            - runs-on: ubuntu-latest
+              queue: hosted
+              image: buildkite.namespace-images.com/agent-base@sha256:04a6656f92b90269b3259fffaba67e08a3d03d8dc79b40d45c9ac3d9000e9e03
+            - runs-on: macos-14
+              queue: macos-sonoma-arm64
 ```
+
+`runs-on` is matched after static expressions and matrices are resolved. An explicit `image` applies only to the matching Linux label, must be an immutable `@sha256:` reference, and replaces the label's hosted-toolchains default. macOS mappings select a native queue and cannot specify an image. Duplicate labels, unsupported labels, malformed queues or images, and conflicting multi-label targets fail admission. Unmapped supported Linux labels retain default Buildkite agent targeting without an image; unmapped macOS labels fail rather than falling back to a Linux queue.
 
 > [!WARNING]
 > Generated jobs may execute untrusted workflow or action code. The selected queue must provide whole-job isolation, no ambient protected credentials, and a clean machine for each untrusted job. Persistent self-hosted agents can expose host resources and state left by earlier jobs.
@@ -115,7 +124,7 @@ Generated jobs need network access for anything they download at runtime:
 
 When resolving a mutable tag or branch for a public action, the importer uses an available job-scoped GitHub token only for the GitHub API request. If it cannot obtain or register the token, it reports a warning and retries anonymously. A lowercase, full 40-character commit SHA does not require an API request. The importer and generated jobs download the resolved action archive anonymously from `codeload.github.com`.
 
-`BUILDKITE_GHA_RUNTIME_IMAGE` is supported only when generated jobs run on Buildkite hosted agents or Agent Stack for Kubernetes controller v0.30.0 or later. Set the variable on the importer step to the immutable digest of a toolchain-enabled image that provides `/opt/hostedtoolcache`. The runtime rejects tags and other mutable image references. Do not set this variable for other self-hosted agent environments because they cannot provision the generated job image.
+Configured Linux profiles select an immutable hosted-toolchains image and enable its `/opt/hostedtoolcache`. An explicit `runners[].image` override must provide the same tool-cache path and is supported only when the matching jobs run on Buildkite hosted agents or Agent Stack for Kubernetes controller v0.30.0 or later. Do not configure Linux profiles for other self-hosted environments that cannot provision the generated job image. macOS profiles never select an image.
 
 ## Configure triggers and GitHub context
 
@@ -155,6 +164,7 @@ Without this volume, mise uses the agent or user data directory. Treat the mise 
 The public preview supports an evolving subset of GitHub Actions. Common supported features include:
 
 - Linux x86-64 jobs using `ubuntu-latest`, `ubuntu-24.04`, or `ubuntu-22.04`. These labels identify a compatible runner but do not provide the same tools or image layout as a GitHub-hosted runner.
+- Native macOS Apple Silicon jobs using `macos-latest`, `macos-15`, or `macos-14` when each used label has an explicit Darwin arm64 queue mapping.
 - Bash and `sh` run steps.
 - Static job dependencies and matrices, including `include` and `exclude`, up to 256 expanded instances per job.
 - Supported job and step conditions, outputs, timeouts, and step-level `continue-on-error` behavior.
@@ -165,7 +175,8 @@ The public preview supports an evolving subset of GitHub Actions. Common support
 Important limitations include:
 
 - General workflow secrets, ambient `GITHUB_TOKEN`, private actions, private reusable workflows, alternate-repository or alternate-ref checkout, and GitHub-compatible OIDC are not available.
-- Windows, macOS, and Linux arm64 jobs are not supported.
+- Windows and Linux arm64 jobs are not supported.
+- macOS does not provide GitHub-hosted image or Xcode inventory parity. Docker actions, job containers, and service containers are not supported on macOS.
 - Job and service containers are not available through the production plugin path.
 - Dynamic matrices and remote reusable workflows are not supported.
 - The runtime accepts `strategy.fail-fast` but does not enforce it, so a failed matrix job does not cancel the other matrix jobs.

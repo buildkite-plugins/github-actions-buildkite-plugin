@@ -4,7 +4,7 @@ setup() {
   REPO="$BATS_TEST_DIRNAME/.."
   TMP="$(mktemp -d)"
   export MOCK_LOG="$TMP/mock.log"
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW=".github/workflows/ci.yml"
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/ci.yml","runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
   export BUILDKITE_COMMIT=1111111111111111111111111111111111111111
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION BUILDKITE_PLUGIN__VERSION
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF
@@ -25,7 +25,7 @@ if [[ "\${1:-}" == version ]]; then
   exit
 fi
 printf 'mise=%s\n' "\$*" >> "\${MOCK_LOG:?}"
-printf 'workflow=%s\n' "\${BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW:-}" >> "\${MOCK_LOG:?}"
+printf 'configuration=%s\n' "\${BUILDKITE_PLUGIN_CONFIGURATION:-}" >> "\${MOCK_LOG:?}"
 printf 'commit=%s\n' "\${BUILDKITE_COMMIT:-}" >> "\${MOCK_LOG:?}"
 printf 'group=%s\n' "\${BUILDKITE_GROUP_LABEL:-}" >> "\${MOCK_LOG:?}"
 printf 'minimum-release-age=%s\n' "\${MISE_MINIMUM_RELEASE_AGE:-}" >> "\${MOCK_LOG:?}"
@@ -37,8 +37,8 @@ printf 'url-replacements=%s\n' "\${MISE_URL_REPLACEMENTS:-}" >> "\${MOCK_LOG:?}"
 printf 'installs-dir=%s\n' "\${MISE_INSTALLS_DIR:-}" >> "\${MOCK_LOG:?}"
 printf 'credential-command=%s\n' "\${MISE_GITHUB_CREDENTIAL_COMMAND:-}" >> "\${MOCK_LOG:?}"
 if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${4:-}" == -- && "\${5:-}" == buildkite-gha && "\${6:-}" == plugin ]]; then
-  if [[ -z "\${BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW:-}" ]]; then
-    echo 'buildkite-gha: plugin: BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW is required' >&2
+  if [[ -z "\${BUILDKITE_PLUGIN_CONFIGURATION:-}" ]]; then
+    echo 'buildkite-gha: plugin: BUILDKITE_PLUGIN_CONFIGURATION is required' >&2
     exit 2
   fi
   exit "\${MOCK_IMPORTER_EXIT:-0}"
@@ -162,14 +162,21 @@ teardown() { rm -rf "$TMP"; }
   export BUILDKITE_GROUP_LABEL="GitHub Actions / checks"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'workflow=.github/workflows/ci.yml' "$MOCK_LOG"
+  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
   grep -Fx 'commit=HEAD' "$MOCK_LOG"
   grep -Fx 'group=GitHub Actions / checks' "$MOCK_LOG"
 
-  unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW
+  unset BUILDKITE_PLUGIN_CONFIGURATION
   run "$REPO/hooks/command"
   [ "$status" -eq 2 ]
-  [[ "$output" == *"BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW is required"* ]]
+  [[ "$output" == *"BUILDKITE_PLUGIN_CONFIGURATION is required"* ]]
+}
+
+@test "passes future behavioral configuration through unchanged" {
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":"ci.yml","future":{"nested":[true,3]},"runners":"validated-by-buildkite-gha"}'
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
 }
 
 @test "ignores legacy aliases and propagates buildkite-gha failures" {

@@ -11,10 +11,6 @@ requirements:
   - cp
 configuration:
   properties:
-    workflow:
-      type: string
-      minLength: 1
-      description: Path to the GitHub Actions workflow to upload.
     version:
       type: string
       default: latest
@@ -29,6 +25,4 @@ configuration:
       minLength: 1
       default: 0s
       description: Minimum age passed to mise when selecting the latest buildkite-gha release.
-  required:
-    - workflow
-  additionalProperties: false
+  additionalProperties: true
