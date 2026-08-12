@@ -143,6 +143,13 @@ teardown() { rm -rf "$TMP"; }
   grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
 }
 
+@test "passes an explicit workflow path array to buildkite-gha unchanged" {
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflows":[".github/workflows/ci.yml",".github/workflows/release.yml"],"runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
+}
+
 @test "builds paired runtimes from one source commit and runs only Linux with the private Darwin path" {
   commit=abcdef0123456789abcdef0123456789abcdef01
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"

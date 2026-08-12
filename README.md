@@ -9,9 +9,9 @@ The GitHub Actions Buildkite plugin converts a supported [GitHub Actions workflo
 
 During the preview, start with a workflow in a public `github.com` repository that targets Linux x86-64 and does not need secrets. Private repository checkout and temporary GitHub tokens are available in limited cases but require extra setup. Check the [supported functionality and limitations](#supported-functionality-and-limitations) before you begin.
 
-## Add a workflow to a pipeline
+## Add workflows to a pipeline
 
-Add the plugin to a keyed command step in your pipeline configuration. Set `workflows` to one string containing either a Git glob or a literal workflow path:
+Add the plugin to a keyed command step in your pipeline configuration. Set `workflows` to `"*"` to select every workflow directly under `.github/workflows`:
 
 ```yaml
 steps:
@@ -19,10 +19,10 @@ steps:
     key: "github-actions"
     plugins:
       - github-actions#v0.9.3:
-          workflows: ".github/workflows/*.yml"
+          workflows: "*"
 ```
 
-The selector is matched against files tracked by Git. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key`.
+The selection is resolved against files tracked by Git. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key`.
 
 The Git ref after `github-actions#` selects the plugin code. Use a specific release such as `github-actions#v0.9.3` for an immutable pin, or use `github-actions#latest` to follow the newest stable plugin release that has passed the required validation. This is separate from the `version` property below, which selects the `buildkite-gha` runtime.
 
@@ -30,7 +30,7 @@ Configure runtime selection with the following properties:
 
 | Option | Required | Default | Description |
 | --- | --- | --- | --- |
-| `workflows` | Yes | — | One string containing a Git glob matching tracked GitHub Actions workflows, or a literal workflow path. Arrays are not supported. |
+| `workflows` | Yes | — | `"*"`, one literal path, directory, or tracked Git glob, or an array of explicit tracked workflow paths. |
 | `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.9.0` onward. |
 | `source-ref` | No | — | Full `buildkite-gha` source commit to build for development testing; mutually exclusive with `version`. |
 | `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
@@ -45,7 +45,21 @@ The plugin validates only the runtime-acquisition fields `version`, `source-ref`
 
 ### Select workflows
 
-Matched workflows are sorted and compiled before anything is uploaded. Workflow groups use the workflow's `name`, falling back to its repository path. Reusable workflows whose only trigger is `workflow_call` do not create groups, but remain available to matched callers. The upload fails if the pattern matches no tracked files, matches no directly runnable workflows, or includes a workflow whose trigger cannot be represented safely.
+The `"*"` shorthand selects every tracked `.yml` and `.yaml` file directly under `.github/workflows`. Any other string can be a literal file, directory, or tracked Git glob.
+
+Use an array to select explicit workflow paths without a glob:
+
+```yaml
+plugins:
+  - github-actions#v0.9.3:
+      workflows:
+        - .github/workflows/ci.yml
+        - .github/workflows/release.yml
+```
+
+Every array entry must identify one regular, tracked `.yml` or `.yaml` file inside the repository. Arrays do not accept directories or glob patterns. Selected paths are canonicalized, sorted, and deduplicated before upload.
+
+Matched workflows are compiled and uploaded atomically. Workflow groups use the workflow's `name`, falling back to its repository path. Reusable workflows whose only trigger is `workflow_call` do not create groups, but remain available to matched callers. The upload fails if a selector matches no tracked files, the selection contains no directly runnable workflows, or a workflow's trigger cannot be represented safely.
 
 The supported top-level triggers map to group `if` expressions as follows:
 
@@ -56,7 +70,7 @@ The supported top-level triggers map to group `if` expressions as follows:
 | `workflow_dispatch` | Buildkite UI or API build |
 | `schedule` | Buildkite scheduled build |
 
-Multiple triggers are combined with OR. Path filters and unsupported events or filters fail the upload rather than broadening when the workflow runs. GitHub and Buildkite use different path-diff semantics, so `paths` and `paths-ignore` are not translated.
+The effective event selects which workflow groups apply. Applicable workflows use only the matching event's condition; triggers for other events are not ORed into that group. Path filters and unsupported events or filters fail the upload rather than broadening when the workflow runs. GitHub and Buildkite use different path-diff semantics, so `paths` and `paths-ignore` are not translated.
 
 These conditions select groups in a Buildkite build; they do not configure which GitHub webhooks create builds. Configure the corresponding webhook events in the Buildkite pipeline settings. Buildkite also retains ownership of cron schedules: every workflow with `on.schedule` is eligible during any Buildkite scheduled build.
 
