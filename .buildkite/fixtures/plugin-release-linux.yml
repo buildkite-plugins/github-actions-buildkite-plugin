@@ -1,0 +1,28 @@
+name: Plugin Linux release smoke
+
+on:
+  push:
+
+jobs:
+  release-linux-default:
+    name: Verify released Linux default image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Linux runtime
+        shell: bash
+        run: |
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = Linux
+          test -d /opt/hostedtoolcache
+
+  release-linux-override:
+    name: Verify released immutable image override
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Verify overridden Linux runtime
+        shell: bash
+        run: |
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = Linux
+          test -d /opt/hostedtoolcache
+          grep -Fx 'VERSION_ID="24.04"' /etc/os-release

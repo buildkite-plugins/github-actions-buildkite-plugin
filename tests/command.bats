@@ -128,11 +128,11 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "passes exact versions and a configured minimum release age to mise" {
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.8.0
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.9.0
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE=24h
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@0.8.0 -- buildkite-gha plugin' "$MOCK_LOG"
+  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@0.9.0 -- buildkite-gha plugin' "$MOCK_LOG"
   grep -Fx 'minimum-release-age=24h' "$MOCK_LOG"
 }
 
@@ -172,7 +172,7 @@ teardown() { rm -rf "$TMP"; }
   [ ! -s "$MOCK_LOG" ]
 
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=abcdef0123456789abcdef0123456789abcdef01
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.8.0
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.9.0
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
   [[ "$output" == *"version and source-ref are mutually exclusive"* ]]
@@ -180,12 +180,12 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "rejects versions outside the stable plugin contract" {
-  for version in 0.7.2 0.8.0-rc.1 01.2.3 main ABCDEF0123456789ABCDEF0123456789ABCDEF01 abcdef0123456789abcdef0123456789abcdef0 '1.0.0/../../bad'; do
+  for version in 0.8.0 0.9.0-rc.1 01.2.3 main ABCDEF0123456789ABCDEF0123456789ABCDEF01 abcdef0123456789abcdef0123456789abcdef0 '1.0.0/../../bad'; do
     : > "$MOCK_LOG"
     export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION="$version"
     run "$REPO/hooks/command"
     [ "$status" -ne 0 ]
-    [[ "$output" == *"expected latest or an exact stable release from 0.8.0 onward"* ]]
+    [[ "$output" == *"expected latest or an exact stable release from 0.9.0 onward"* ]]
     [ ! -s "$MOCK_LOG" ]
   done
 }
@@ -228,7 +228,7 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "ignores legacy aliases and propagates buildkite-gha failures" {
-  export BUILDKITE_PLUGIN__VERSION=0.8.0
+  export BUILDKITE_PLUGIN__VERSION=0.9.0
   export BUILDKITE_PLUGIN__MINIMUM_RELEASE_AGE=7d
   export MOCK_IMPORTER_EXIT=37
   run "$REPO/hooks/command"

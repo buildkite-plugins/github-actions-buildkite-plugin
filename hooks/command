@@ -31,10 +31,10 @@ configured_version="${configured_version:-latest}"
 configured_version="${configured_version#v}"
 if [[ "$configured_version" != latest ]]; then
   if [[ "$configured_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] &&
-    (( BASH_REMATCH[1] > 0 || BASH_REMATCH[2] >= 8 )); then
+    (( BASH_REMATCH[1] > 0 || BASH_REMATCH[2] >= 9 )); then
     :
   else
-    echo "github-actions plugin: invalid CLI version '$configured_version'; expected latest or an exact stable release from 0.8.0 onward" >&2
+    echo "github-actions plugin: invalid CLI version '$configured_version'; expected latest or an exact stable release from 0.9.0 onward" >&2
     exit 1
   fi
 fi

@@ -3,7 +3,7 @@
 > [!NOTE]
 > Running GitHub Actions workflows in Buildkite is currently in public preview. To report issues with the preview, [open an issue in the `buildkite-gha` repository](https://github.com/buildkite/buildkite-gha/issues). For help migrating to native Buildkite Pipelines steps, contact the [Buildkite Support team](mailto:support@buildkite.com).
 >
-> The plugin and runtime are under active development. Review the [`buildkite-gha` v0.8.0 compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.8.0/docs/compatibility.md) before adding a workflow.
+> The plugin and runtime are under active development. Review the [`buildkite-gha` v0.9.0 compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.9.0/docs/compatibility.md) before adding a workflow.
 
 The GitHub Actions Buildkite plugin converts a supported [GitHub Actions workflow](https://docs.github.com/en/actions/using-workflows/about-workflows) into native [Buildkite Pipelines](https://buildkite.com/docs/pipelines) jobs without creating a GitHub Actions workflow run. This lets you start migrating a workflow before [converting it into native Buildkite Pipelines steps](https://buildkite.com/docs/pipelines/migration/from-githubactions).
 
@@ -29,7 +29,7 @@ Configure runtime selection with the following properties:
 | Option | Required | Default | Description |
 | --- | --- | --- | --- |
 | `workflow` | Yes | — | Path to the GitHub Actions workflow in the repository. |
-| `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.8.0` onward. |
+| `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.9.0` onward. |
 | `source-ref` | No | — | Full `buildkite-gha` source commit to build for development testing; mutually exclusive with `version`. |
 | `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
 | `runners` | No | — | Exact `runs-on` mappings to Buildkite queues and optional immutable Linux image overrides. |
@@ -105,7 +105,7 @@ steps:
           runners:
             - runs-on: ubuntu-latest
               queue: hosted
-              image: buildkite.namespace-images.com/agent-base@sha256:04a6656f92b90269b3259fffaba67e08a3d03d8dc79b40d45c9ac3d9000e9e03
+              image: buildkite.namespace-images.com/agent-base@sha256:62a45683afffaae9edfd669c16d2fee23b5a571679f31715e1063dada667ea24
             - runs-on: macos-14
               queue: macos-sonoma-arm64
 ```
@@ -138,7 +138,7 @@ Pull request builds receive `pull_request` context. Branch, tag, scheduled, and 
 
 Supported, audited `actions/checkout` revisions can check out the exact event repository and commit from `github.com`. Checkout runs anonymously when repository-provider credentials are not enabled. Private checkout uses Buildkite repository-provider Git credentials when they are enabled and authorized for the job.
 
-Checkout credentials do not populate `GITHUB_TOKEN` or `github.token`, enable private actions, or allow alternate repositories or refs. A workflow can receive a temporary GitHub token only when it makes a supported static token reference and the Buildkite organization has enabled the job-bound token service. When the workflow omits `permissions`, the runtime requests the narrow `contents: read` default. The compatibility guide describes the [complete credential boundary](https://github.com/buildkite/buildkite-gha/blob/v0.8.0/docs/compatibility.md#repositories-credentials-and-github-services).
+Checkout credentials do not populate `GITHUB_TOKEN` or `github.token`, enable private actions, or allow alternate repositories or refs. A workflow can receive a temporary GitHub token only when it makes a supported static token reference and the Buildkite organization has enabled the job-bound token service. When the workflow omits `permissions`, the runtime requests the narrow `contents: read` default. The compatibility guide describes the [complete credential boundary](https://github.com/buildkite/buildkite-gha/blob/v0.9.0/docs/compatibility.md#repositories-credentials-and-github-services).
 
 > [!WARNING]
 > The job-bound token service does not determine whether a fork or actor is trusted. If a pull request can change an imported workflow, that workflow can request any repository permission enabled by the service. Do not allow untrusted workflow changes to receive write permissions.
@@ -183,10 +183,10 @@ Important limitations include:
 - The complete `github.event` payload and GitHub-specific event behavior are not available at runtime.
 - Unaudited revisions of actions with native support are rejected.
 
-If a feature is not listed in the [`buildkite-gha` v0.8.0 compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.8.0/docs/compatibility.md), treat it as unsupported.
+If a feature is not listed in the [`buildkite-gha` v0.9.0 compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.9.0/docs/compatibility.md), treat it as unsupported.
 
 > [!WARNING]
-> All steps in an imported job share a workspace, environment changes, processes, and action lifecycle. Docker actions provide packaging, not a security boundary. Review the [`buildkite-gha` v0.8.0 security model](https://github.com/buildkite/buildkite-gha/blob/v0.8.0/docs/security.md) before running untrusted workflow code.
+> All steps in an imported job share a workspace, environment changes, processes, and action lifecycle. Docker actions provide packaging, not a security boundary. Review the [`buildkite-gha` v0.9.0 security model](https://github.com/buildkite/buildkite-gha/blob/v0.9.0/docs/security.md) before running untrusted workflow code.
 
 ## Develop the plugin
 
