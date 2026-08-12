@@ -18,7 +18,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.7.1:
+      - github-actions#v0.8.0:
           workflow: ".github/workflows/ci.yml"
 ```
 
@@ -44,7 +44,7 @@ steps:
   - label: ":github: Tests"
     key: "github-actions-tests"
     plugins:
-      - github-actions#v0.7.1:
+      - github-actions#v0.8.0:
           workflow: ".github/workflows/ci.yml"
 
   - label: "Deploy"
@@ -96,7 +96,7 @@ steps:
     env:
       BUILDKITE_GHA_TARGET_QUEUE: "gha-preview"
     plugins:
-      - github-actions#v0.7.1:
+      - github-actions#v0.8.0:
           workflow: ".github/workflows/ci.yml"
 ```
 
@@ -141,7 +141,7 @@ steps:
     key: "github-actions"
     cache: "/cache/bkcache/mise"
     plugins:
-      - github-actions#v0.7.1:
+      - github-actions#v0.8.0:
           workflow: ".github/workflows/ci.yml"
 ```
 
