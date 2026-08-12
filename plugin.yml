@@ -20,6 +20,10 @@ configuration:
       default: latest
       pattern: "^(latest|v?(0\\.(8|9|[1-9][0-9]+)|[1-9][0-9]*\\.(0|[1-9][0-9]*))\\.(0|[1-9][0-9]*))$"
       description: Latest stable or an exact stable buildkite-gha CLI release from 0.8.0 onward.
+    source-ref:
+      type: string
+      pattern: "^[0-9a-f]{40}$"
+      description: Full buildkite-gha source commit to build for development testing. Mutually exclusive with version.
     minimum-release-age:
       type: string
       minLength: 1

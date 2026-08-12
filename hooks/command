@@ -14,10 +14,21 @@ fi
 # shellcheck disable=SC1091
 . "${PLUGIN_ROOT}/lib/mise.sh"
 
-configured_version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-latest}"
-configured_version="${configured_version#v}"
+configured_version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-}"
+source_ref="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF:-}"
 minimum_release_age="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE:-0s}"
 
+if [[ -n "$source_ref" && -n "$configured_version" ]]; then
+  echo "github-actions plugin: version and source-ref are mutually exclusive" >&2
+  exit 1
+fi
+if [[ -n "$source_ref" && ! "$source_ref" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "github-actions plugin: invalid buildkite-gha source ref '$source_ref'; expected a full lowercase 40-character commit" >&2
+  exit 1
+fi
+
+configured_version="${configured_version:-latest}"
+configured_version="${configured_version#v}"
 if [[ "$configured_version" != latest ]]; then
   if [[ "$configured_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] &&
     (( BASH_REMATCH[1] > 0 || BASH_REMATCH[2] >= 8 )); then
@@ -40,9 +51,16 @@ esac
 echo "~~~ :github: Prepare workflow"
 
 setup_mise
-export MISE_GITHUB_GH_CLI_TOKENS=false
-export MISE_MINIMUM_RELEASE_AGE="$minimum_release_age"
 export MISE_YES=1
-exec "$MISE_BIN" --no-config exec \
-  "github:buildkite/buildkite-gha@${configured_version}" \
-  -- buildkite-gha plugin
+if [[ -n "$source_ref" ]]; then
+  echo "github-actions plugin: building buildkite-gha source commit $source_ref with Go 1.26.5" >&2
+  exec "$MISE_BIN" --no-config exec go@1.26.5 -- \
+    env CGO_ENABLED=0 GOTOOLCHAIN=local \
+    go run -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${source_ref}" plugin
+else
+  export MISE_GITHUB_GH_CLI_TOKENS=false
+  export MISE_MINIMUM_RELEASE_AGE="$minimum_release_age"
+  exec "$MISE_BIN" --no-config exec \
+    "github:buildkite/buildkite-gha@${configured_version}" \
+    -- buildkite-gha plugin
+fi

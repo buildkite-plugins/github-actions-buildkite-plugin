@@ -7,6 +7,7 @@ setup() {
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW=".github/workflows/ci.yml"
   export BUILDKITE_COMMIT=1111111111111111111111111111111111111111
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION BUILDKITE_PLUGIN__VERSION
+  unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE BUILDKITE_PLUGIN__MINIMUM_RELEASE_AGE
   unset MISE_DATA_DIR
   mkdir -p "$TMP/bin"
@@ -40,6 +41,9 @@ if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${4:-}" == -- && "\${5:
     echo 'buildkite-gha: plugin: BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW is required' >&2
     exit 2
   fi
+  exit "\${MOCK_IMPORTER_EXIT:-0}"
+fi
+if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${3:-}" == go@1.26.5 && "\${4:-}" == -- && "\${5:-}" == env && "\${6:-}" == CGO_ENABLED=0 && "\${7:-}" == GOTOOLCHAIN=local && "\${8:-}" == go && "\${9:-}" == run && "\${10:-}" == -trimpath && "\${12:-}" == plugin ]]; then
   exit "\${MOCK_IMPORTER_EXIT:-0}"
 fi
 exit 64
@@ -102,8 +106,33 @@ teardown() { rm -rf "$TMP"; }
   grep -Fx 'minimum-release-age=24h' "$MOCK_LOG"
 }
 
+@test "builds and runs a full buildkite-gha source commit through mise" {
+  commit=abcdef0123456789abcdef0123456789abcdef01
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"building buildkite-gha source commit $commit with Go 1.26.5"* ]]
+  grep -Fx "mise=--no-config exec go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit plugin" "$MOCK_LOG"
+  grep -Fx 'minimum-release-age=' "$MOCK_LOG"
+}
+
+@test "rejects invalid or ambiguous source configuration" {
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=main
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"expected a full lowercase 40-character commit"* ]]
+  [ ! -s "$MOCK_LOG" ]
+
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=abcdef0123456789abcdef0123456789abcdef01
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.8.0
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"version and source-ref are mutually exclusive"* ]]
+  [ ! -s "$MOCK_LOG" ]
+}
+
 @test "rejects versions outside the stable plugin contract" {
-  for version in 0.7.2 0.8.0-rc.1 01.2.3 '1.0.0/../../bad'; do
+  for version in 0.7.2 0.8.0-rc.1 01.2.3 main ABCDEF0123456789ABCDEF0123456789ABCDEF01 abcdef0123456789abcdef0123456789abcdef0 '1.0.0/../../bad'; do
     : > "$MOCK_LOG"
     export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION="$version"
     run "$REPO/hooks/command"

@@ -24,16 +24,19 @@ steps:
 
 When this importer step runs, the plugin uploads a dynamic pipeline. Each supported workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key`.
 
-For a released runtime, use the following configuration:
+Configure runtime selection with the following properties:
 
 | Option | Required | Default | Description |
 | --- | --- | --- | --- |
 | `workflow` | Yes | — | Path to the GitHub Actions workflow in the repository. |
 | `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.8.0` onward. |
+| `source-ref` | No | — | Full `buildkite-gha` source commit to build for development testing; mutually exclusive with `version`. |
 | `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
 
 > [!NOTE]
 > Plugin and runtime versions are independent. Pin `version` to keep release-version selection stable, or use `latest` to follow stable runtime releases. Increase `minimum-release-age` (for example, to `24h`) to delay newly published releases. If you update the runtime version, use its matching compatibility guide.
+
+To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build that source before running `buildkite-gha plugin`. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
 
 ## Migrate incrementally
 
@@ -59,10 +62,10 @@ As you replace jobs with native Buildkite Pipelines steps, the remaining support
 
 The plugin and the `buildkite-gha` runtime work together to run the workflow:
 
-- The plugin uses an existing compatible `mise`, or installs a pinned verified copy, then asks mise to select and run the configured `buildkite-gha` release.
+- The plugin uses an existing compatible `mise`, or installs a pinned verified copy, then asks mise to select and run the configured `buildkite-gha` release or source commit.
 - The hidden `buildkite-gha plugin` command reads the plugin configuration, checks that the workflow is supported, converts its jobs into Buildkite Pipelines command jobs, uploads them, and runs each generated job.
 
-You do not need to install `mise` or `buildkite-gha`. Mise verifies the selected Linux x86-64 runtime release when installing it, then caches the installation before running it.
+You do not need to install `mise` or `buildkite-gha`. For releases, mise verifies the selected Linux x86-64 runtime, then caches the installation before running it.
 
 Generated jobs that use JavaScript actions also prepare a verified, managed `mise` installation for the supported Node.js versions. Shell-only generated jobs and jobs that use only native adapters or Docker do not install `mise`.
 
