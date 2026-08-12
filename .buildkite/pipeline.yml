@@ -1,15 +1,22 @@
 steps:
   - label: ":sparkles: Tests"
-    plugins:
-      - plugin-tester#v1.3.0: ~
+    key: "plugin-tests"
+    command: |
+      docker run --rm -t \
+        -v "$$PWD:/plugin" \
+        buildkite/plugin-tester:v4.3.0 \
+        sh -c 'apk add --no-cache git >/dev/null && bats tests'
   - label: ":lint-roller: Plugin lint"
+    key: "plugin-lint"
     plugins:
       - plugin-linter#v3.3.0:
           id: github-actions
   - label: ":shell: Shellcheck"
+    key: "shellcheck"
     plugins:
       - shellcheck#v1.4.0:
           files:
+            - .buildkite/scripts/*
             - hooks/*
             - lib/*
   - label: ":pipeline: Load live plugin smoke"
@@ -23,7 +30,7 @@ steps:
       set -euo pipefail
       commit="$${BUILDKITE_COMMIT:?BUILDKITE_COMMIT is required}"
       [[ "$$commit" =~ ^[0-9a-f]{40}$$ ]]
-      cat <<YAML | buildkite-agent pipeline upload
+      cat <<YAML | buildkite-agent pipeline upload --no-interpolation
       steps:
         - label: ":github: Live Linux release smoke"
           key: "live-linux-release-smoke-importer"
@@ -128,4 +135,23 @@ steps:
                 runners:
                   - runs-on: macos-14
                     queue: macos
+        - label: ":github: Update latest plugin tag"
+          key: "update-latest-plugin-tag"
+          if: 'build.tag != null && build.tag =~ /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$$/'
+          depends_on:
+            - "plugin-tests"
+            - "plugin-lint"
+            - "shellcheck"
+            - "live-linux-release-smoke-importer"
+            - "live-mixed-release-smoke-importer"
+            - "live-macos-release-smoke-importer"
+            - "live-linux-source-ref-smoke-importer"
+            - "live-mixed-source-ref-smoke-importer"
+            - "live-macos-source-ref-smoke-importer"
+          agents:
+            queue: "hosted"
+          timeout_in_minutes: 10
+          retry:
+            automatic: false
+          command: .buildkite/scripts/update-latest-tag
       YAML

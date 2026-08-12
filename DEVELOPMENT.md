@@ -15,7 +15,7 @@ From the repository root, run:
 
 ```bash
 bats tests
-shellcheck hooks/* lib/*
+shellcheck .buildkite/scripts/* hooks/* lib/*
 ```
 
 The Bats suite makes no live network requests. CI runs these checks plus the Buildkite plugin linter. Importer runtime dependencies are listed in `plugin.yml`.
@@ -44,3 +44,7 @@ Plugin releases are Git tags and contain no generated assets. Before you create 
 When changing runtime integration, update `plugin.yml`, `hooks/command`, `.github/workflows/plugin-smoke.yml`, `tests/command.bats`, and the README together. Make sure the examples and versioned compatibility and security links describe the recommended runtime release.
 
 Push the tag after all checks pass. The Buildkite pipeline also tests tag builds.
+
+After every strict stable `vX.Y.Z` tag build passes the static checks and all live release and source smoke tests, a final step moves the lightweight `latest` tag to that release commit. Stable `vX.Y.Z` plugin tags remain immutable; `latest` is an intentionally mutable plugin alias, so `github-actions#latest` selects the newest validated stable plugin release. This is separate from the plugin configuration `version: latest`, which selects the latest stable `buildkite-gha` runtime through mise.
+
+The final step installs a pinned GitHub CLI through the same verified mise bootstrap used by the plugin. It assumes `GITHUB_ACTIONS_PLUGIN_RELEASE_TOKEN` is available through `buildkite-agent secret get` only to trusted tag builds. Use a repository-scoped credential with Contents write access, and configure GitHub tag rules to allow that credential to update only the intended mutable tag without weakening protections for release tags. Rerunning a successful release build is a no-op when `latest` already points directly to its commit. A delayed older or divergent release build refuses to replace a newer `latest`; concurrent updates are retried with a bounded force-with-lease.
