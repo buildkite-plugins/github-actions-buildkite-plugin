@@ -2,26 +2,26 @@
 set -euo pipefail
 set +x
 umask 077
+unset GH_TOKEN GITHUB_TOKEN
 
+plugin_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+readonly plugin_root
 readonly canonical_remote="https://github.com/buildkite-plugins/github-actions-buildkite-plugin.git"
 readonly latest_remote_ref="refs/tags/latest"
 readonly release_tag="${BUILDKITE_TAG:-}"
 readonly release_commit="${BUILDKITE_COMMIT:-}"
+readonly github_cli_version="2.97.0"
 readonly max_push_attempts=3
 readonly ref_namespace="refs/buildkite/update-latest/$$"
 readonly release_local_ref="${ref_namespace}/release"
 readonly latest_local_ref="${ref_namespace}/latest"
 
-askpass=""
 latest_oid=""
 latest_commit=""
 
 cleanup() {
   git update-ref -d "$release_local_ref" >/dev/null 2>&1 || true
   git update-ref -d "$latest_local_ref" >/dev/null 2>&1 || true
-  if [[ -n "$askpass" ]]; then
-    rm -f "$askpass"
-  fi
   unset release_token
 }
 trap cleanup EXIT
@@ -108,31 +108,30 @@ if [[ "$latest_oid" == "$release_commit" ]]; then
   exit 0
 fi
 
+# shellcheck disable=SC1091
+. "${plugin_root}/lib/mise.sh"
+setup_mise
+export MISE_GITHUB_GH_CLI_TOKENS=false
+export MISE_YES=1
+gh_bin="$("$MISE_BIN" --no-config exec "github-cli@${github_cli_version}" -- sh -c 'command -v gh')"
+[[ -x "$gh_bin" ]] || fail "mise did not install GitHub CLI $github_cli_version"
+printf -v gh_credential_helper '!%q auth git-credential' "$gh_bin"
+
 agent_binary="${BUILDKITE_AGENT_BINARY:-buildkite-agent}"
 release_token="$("$agent_binary" secret get GITHUB_ACTIONS_PLUGIN_RELEASE_TOKEN)"
 if [[ -z "$release_token" || "$release_token" == *$'\n'* ]]; then
   fail "GITHUB_ACTIONS_PLUGIN_RELEASE_TOKEN is empty or invalid"
 fi
-askpass="$(mktemp)"
-cat > "$askpass" <<'ASKPASS'
-#!/usr/bin/env bash
-case "${1:-}" in
-  *Username*) printf '%s\n' 'x-access-token' ;;
-  *Password*) printf '%s\n' "${BUILDKITE_LATEST_TAG_GITHUB_TOKEN:?}" ;;
-  *) exit 1 ;;
-esac
-ASKPASS
-chmod 700 "$askpass"
 
 for ((attempt = 1; attempt <= max_push_attempts; attempt++)); do
-  if BUILDKITE_LATEST_TAG_GITHUB_TOKEN="$release_token" \
-    GIT_ASKPASS="$askpass" \
+  if GH_TOKEN="$release_token" \
+    GH_PROMPT_DISABLED=1 \
     GIT_TERMINAL_PROMPT=0 \
     GIT_TRACE_CURL=0 \
     GIT_CURL_VERBOSE=0 \
     GIT_TRACE_REDACT=1 \
     git -c credential.helper= \
-    -c credential.username=x-access-token \
+    -c "credential.helper=${gh_credential_helper}" \
     -c http.extraHeader= \
     push --porcelain --no-follow-tags "$canonical_remote" \
     "--force-with-lease=${latest_remote_ref}:${latest_oid}" \

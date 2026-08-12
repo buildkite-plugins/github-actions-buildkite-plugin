@@ -10,9 +10,14 @@ setup() {
   export HOME="$TMP/home"
   export SECRET_LOG="$TMP/secret.log"
   export PUSH_LOG="$TMP/push.log"
+  export MISE_LOG="$TMP/mise.log"
+  export GH_LOG="$TMP/gh.log"
   mkdir -p "$HOME" "$TMP/bin"
   : > "$SECRET_LOG"
   : > "$PUSH_LOG"
+  : > "$MISE_LOG"
+  : > "$GH_LOG"
+  unset GH_TOKEN GITHUB_TOKEN
 
   "$REAL_GIT" init --quiet --bare "$REMOTE"
   "$REAL_GIT" init --quiet "$WORK"
@@ -45,7 +50,29 @@ printf '%s\n' "$*" >> "${SECRET_LOG:?}"
 [[ "$1" == secret && "$2" == get && "$3" == GITHUB_ACTIONS_PLUGIN_RELEASE_TOKEN ]]
 printf '%s' test-release-token
 AGENT
-  chmod +x "$TMP/bin/buildkite-agent"
+  cat > "$TMP/bin/gh" <<'GH'
+#!/usr/bin/env bash
+printf 'gh=%s\n' "$*" >> "${GH_LOG:?}"
+[[ "$1" == auth && "$2" == git-credential && "$3" == get ]]
+cat >/dev/null
+printf 'username=x-access-token\npassword=%s\n' "${GH_TOKEN:?}"
+GH
+  export MOCK_GH="$TMP/bin/gh"
+  cat > "$TMP/bin/mise" <<'MISE'
+#!/usr/bin/env bash
+if [[ "${1:-}" == version ]]; then
+  echo '2026.8.4 linux-x64'
+  exit
+fi
+printf 'mise=%s\n' "$*" >> "${MISE_LOG:?}"
+if [[ "$1" == --no-config && "$2" == exec && "$3" == github-cli@2.97.0 && "$4" == -- && "$5" == sh && "$6" == -c && "$7" == 'command -v gh' ]]; then
+  printf '%s\n' "${MOCK_GH:?}"
+  exit
+fi
+exit 64
+MISE
+  chmod +x "$TMP/bin/buildkite-agent" "$TMP/bin/gh" "$TMP/bin/mise"
+  export PATH="$TMP/bin:$PATH"
   export BUILDKITE_AGENT_BINARY="$TMP/bin/buildkite-agent"
   export BUILDKITE_TAG=v1.2.3
   export BUILDKITE_COMMIT="$RELEASE_COMMIT"
@@ -71,22 +98,25 @@ install_git_wrapper() {
 #!/usr/bin/env bash
 set -euo pipefail
 is_push=false
+credential_helper_config=""
 for argument in "$@"; do
   [[ "$argument" == push ]] && is_push=true
+  [[ "$argument" == credential.helper='!'* ]] && credential_helper_config="$argument"
   if [[ "$argument" == *test-release-token* ]]; then
     echo "token leaked in git arguments" >&2
     exit 97
   fi
 done
 if [[ "$is_push" == true ]]; then
-  password="$(${GIT_ASKPASS:?} 'Password for https://github.com')"
-  printf 'askpass-password=%s\n' "$password" >> "${PUSH_LOG:?}"
+  credential="$(printf 'protocol=https\nhost=github.com\n\n' | "$REAL_GIT" \
+    -c credential.helper= -c "${credential_helper_config:?}" credential fill)"
+  printf 'credential-%s\n' "$credential" >> "${PUSH_LOG:?}"
   printf 'push=%s\n' "$*" >> "${PUSH_LOG:?}"
   if [[ "${RACE_ONCE:-}" == 1 && ! -e "${RACE_STATE:?}" ]]; then
     : > "$RACE_STATE"
     "$REAL_GIT" --git-dir="${REMOTE:?}" update-ref refs/tags/latest "${SECOND_COMMIT:?}"
   fi
-elif [[ -n "${BUILDKITE_LATEST_TAG_GITHUB_TOKEN:-}" ]]; then
+elif [[ -n "${GH_TOKEN:-}" ]]; then
   echo "release token exposed to non-push git command" >&2
   exit 98
 fi
@@ -133,10 +163,13 @@ GIT
   [ "$(latest_oid)" = "$RELEASE_COMMIT" ]
   [ "$($REAL_GIT --git-dir="$REMOTE" cat-file -t refs/tags/latest)" = commit ]
   grep -Fx 'secret get GITHUB_ACTIONS_PLUGIN_RELEASE_TOKEN' "$SECRET_LOG"
-  grep -Fx 'askpass-password=test-release-token' "$PUSH_LOG"
+  grep -Fx 'mise=--no-config exec github-cli@2.97.0 -- sh -c command -v gh' "$MISE_LOG"
+  grep -Fx 'gh=auth git-credential get' "$GH_LOG"
+  grep -Fx 'password=test-release-token' "$PUSH_LOG"
   grep -F 'https://github.com/buildkite-plugins/github-actions-buildkite-plugin.git' "$PUSH_LOG"
   grep -F -- "--force-with-lease=refs/tags/latest:" "$PUSH_LOG"
   grep -F -- '-c credential.helper=' "$PUSH_LOG"
+  grep -F -- 'credential.helper=!' "$PUSH_LOG"
   grep -F -- '-c http.extraHeader=' "$PUSH_LOG"
   grep -F -- '--no-follow-tags' "$PUSH_LOG"
   ! grep -F 'example.invalid' "$PUSH_LOG"
