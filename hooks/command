@@ -31,10 +31,10 @@ configured_version="${configured_version:-latest}"
 configured_version="${configured_version#v}"
 if [[ "$configured_version" != latest ]]; then
   if [[ "$configured_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] &&
-    (( BASH_REMATCH[1] > 0 || BASH_REMATCH[2] >= 8 )); then
+    (( BASH_REMATCH[1] > 0 || BASH_REMATCH[2] >= 9 )); then
     :
   else
-    echo "github-actions plugin: invalid CLI version '$configured_version'; expected latest or an exact stable release from 0.8.0 onward" >&2
+    echo "github-actions plugin: invalid CLI version '$configured_version'; expected latest or an exact stable release from 0.9.0 onward" >&2
     exit 1
   fi
 fi
@@ -53,10 +53,23 @@ echo "~~~ :github: Prepare workflow"
 setup_mise
 export MISE_YES=1
 if [[ -n "$source_ref" ]]; then
-  echo "github-actions plugin: building buildkite-gha source commit $source_ref with Go 1.26.5" >&2
-  exec "$MISE_BIN" --no-config exec go@1.26.5 -- \
-    env CGO_ENABLED=0 GOTOOLCHAIN=local \
-    go run -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${source_ref}" plugin
+  echo "github-actions plugin: building Linux amd64 and Darwin arm64 runtimes from buildkite-gha source commit $source_ref with Go 1.26.5" >&2
+  runtime_dir="$(mktemp -d /tmp/buildkite-gha-source.XXXXXXXXXX)"
+  trap 'rm -rf -- "$runtime_dir"' EXIT
+  source_gopath="$runtime_dir/go"
+  source_mod_cache="$MISE_DATA_DIR/github-actions-buildkite-plugin/go-mod-cache"
+  linux_runtime="$source_gopath/bin/buildkite-gha"
+  darwin_runtime="$source_gopath/bin/darwin_arm64/buildkite-gha"
+
+  "$MISE_BIN" --no-config exec go@1.26.5 -- \
+    env -u GOBIN CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=linux GOARCH=amd64 GOPATH="$source_gopath" GOMODCACHE="$source_mod_cache" \
+    go install -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${source_ref}"
+  "$MISE_BIN" --no-config exec go@1.26.5 -- \
+    env -u GOBIN CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=darwin GOARCH=arm64 GOPATH="$source_gopath" GOMODCACHE="$source_mod_cache" \
+    go install -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${source_ref}"
+
+  export BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME="$darwin_runtime"
+  "$linux_runtime" plugin
 else
   export MISE_GITHUB_GH_CLI_TOKENS=false
   export MISE_MINIMUM_RELEASE_AGE="$minimum_release_age"

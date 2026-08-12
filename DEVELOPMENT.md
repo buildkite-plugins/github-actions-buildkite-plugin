@@ -22,16 +22,15 @@ The Bats suite makes no live network requests. CI runs these checks plus the Bui
 
 ## Run continuous integration smoke tests
 
-The Buildkite Pipelines build runs a required released-runtime smoke test that:
+The Buildkite Pipelines build runs required released-runtime smoke tests that:
 
 - Pins the plugin to the build's full public commit SHA.
-- Omits `version`, then uses mise to select and verify the latest public `buildkite-gha` release.
-- Uploads `.github/workflows/plugin-smoke.yml`.
-- Checks out the same commit in a generated job and verifies the release defaults.
+- Pins `buildkite-gha` v0.9.0 through mise.
+- Runs Linux-only default-image and explicit-image jobs, a mixed Linux-to-macOS graph, and a macOS-only graph.
 
-This test uses Linux x86-64 Buildkite hosted agents but does not need configured secrets or a cache service.
+These tests use Linux x86-64 and native macOS arm64 Buildkite hosted agents without configured secrets or a cache service.
 
-The same build also runs a source smoke with a pinned full `buildkite-gha` commit. It verifies that `source-ref` installs the required Go toolchain, builds the selected source, and runs the generated job without replacing the released-runtime smoke.
+The same build also runs source smokes with a pinned full `buildkite-gha` commit. They verify that `source-ref` installs the required Go toolchain, builds paired Linux amd64 and Darwin arm64 executables from the selected source, and runs Linux, mixed, and macOS-only graphs without replacing the released-runtime smoke.
 
 ## Release the plugin
 

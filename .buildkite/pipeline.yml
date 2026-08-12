@@ -25,8 +25,8 @@ steps:
       [[ "$$commit" =~ ^[0-9a-f]{40}$$ ]]
       cat <<YAML | buildkite-agent pipeline upload
       steps:
-        - label: ":github: Live plugin smoke"
-          key: "live-plugin-smoke-importer"
+        - label: ":github: Live Linux release smoke"
+          key: "live-linux-release-smoke-importer"
           agents:
             queue: "hosted"
           timeout_in_minutes: 20
@@ -34,12 +34,18 @@ steps:
             automatic: false
           env:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
-            BUILDKITE_GHA_TARGET_QUEUE: "hosted"
           plugins:
             - github-actions#$$commit:
-                workflow: .github/workflows/plugin-smoke.yml
-        - label: ":github: Live source-ref smoke"
-          key: "live-source-ref-smoke-importer"
+                workflow: .buildkite/fixtures/plugin-release-linux.yml
+                version: 0.9.0
+                runners:
+                  - runs-on: ubuntu-latest
+                    queue: hosted
+                  - runs-on: ubuntu-22.04
+                    queue: hosted
+                    image: buildkite.namespace-images.com/agent-base@sha256:62a45683afffaae9edfd669c16d2fee23b5a571679f31715e1063dada667ea24
+        - label: ":github: Live mixed release smoke"
+          key: "live-mixed-release-smoke-importer"
           agents:
             queue: "hosted"
           timeout_in_minutes: 20
@@ -47,9 +53,79 @@ steps:
             automatic: false
           env:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
-            BUILDKITE_GHA_TARGET_QUEUE: "hosted"
+          plugins:
+            - github-actions#$$commit:
+                workflow: .buildkite/fixtures/plugin-release-mixed.yml
+                version: 0.9.0
+                runners:
+                  - runs-on: ubuntu-latest
+                    queue: hosted
+                  - runs-on: macos-14
+                    queue: macos
+        - label: ":github: Live macOS-only release smoke"
+          key: "live-macos-release-smoke-importer"
+          agents:
+            queue: "hosted"
+          timeout_in_minutes: 20
+          retry:
+            automatic: false
+          env:
+            BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
+          plugins:
+            - github-actions#$$commit:
+                workflow: .buildkite/fixtures/plugin-release-macos.yml
+                version: 0.9.0
+                runners:
+                  - runs-on: macos-14
+                    queue: macos
+        - label: ":github: Live Linux source-ref smoke"
+          key: "live-linux-source-ref-smoke-importer"
+          agents:
+            queue: "hosted"
+          timeout_in_minutes: 20
+          retry:
+            automatic: false
+          env:
+            BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
           plugins:
             - github-actions#$$commit:
                 workflow: .github/workflows/plugin-source-smoke.yml
-                source-ref: a0e5416751456411fa09f5cf62421622e6cb57f7
+                source-ref: 782270db1b6d400f38b434aeee6d2e93f3634b45
+                runners:
+                  - runs-on: ubuntu-latest
+                    queue: hosted
+        - label: ":github: Live mixed source-ref smoke"
+          key: "live-mixed-source-ref-smoke-importer"
+          agents:
+            queue: "hosted"
+          timeout_in_minutes: 20
+          retry:
+            automatic: false
+          env:
+            BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
+          plugins:
+            - github-actions#$$commit:
+                workflow: .buildkite/fixtures/plugin-source-mixed.yml
+                source-ref: 782270db1b6d400f38b434aeee6d2e93f3634b45
+                runners:
+                  - runs-on: ubuntu-latest
+                    queue: hosted
+                  - runs-on: macos-14
+                    queue: macos
+        - label: ":github: Live macOS-only source-ref smoke"
+          key: "live-macos-source-ref-smoke-importer"
+          agents:
+            queue: "hosted"
+          timeout_in_minutes: 20
+          retry:
+            automatic: false
+          env:
+            BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
+          plugins:
+            - github-actions#$$commit:
+                workflow: .buildkite/fixtures/plugin-source-macos.yml
+                source-ref: 782270db1b6d400f38b434aeee6d2e93f3634b45
+                runners:
+                  - runs-on: macos-14
+                    queue: macos
       YAML
