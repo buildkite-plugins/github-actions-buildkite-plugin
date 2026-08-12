@@ -11,15 +11,11 @@ requirements:
   - cp
 configuration:
   properties:
-    workflow:
-      type: string
-      minLength: 1
-      description: Path to the GitHub Actions workflow to upload.
     version:
       type: string
       default: latest
-      pattern: "^(latest|v?(0\\.(8|9|[1-9][0-9]+)|[1-9][0-9]*\\.(0|[1-9][0-9]*))\\.(0|[1-9][0-9]*))$"
-      description: Latest stable or an exact stable buildkite-gha CLI release from 0.8.0 onward.
+      pattern: "^(latest|v?(0\\.(9|[1-9][0-9]+)|[1-9][0-9]*\\.(0|[1-9][0-9]*))\\.(0|[1-9][0-9]*))$"
+      description: Latest stable or an exact stable buildkite-gha CLI release from 0.9.0 onward.
     source-ref:
       type: string
       pattern: "^[0-9a-f]{40}$"
@@ -29,6 +25,4 @@ configuration:
       minLength: 1
       default: 0s
       description: Minimum age passed to mise when selecting the latest buildkite-gha release.
-  required:
-    - workflow
-  additionalProperties: false
+  additionalProperties: true

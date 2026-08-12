@@ -1,0 +1,16 @@
+name: Plugin macOS-only source smoke
+
+on:
+  push:
+
+jobs:
+  macos-only:
+    name: Verify macOS-only graph
+    runs-on: macos-14
+    steps:
+      - name: Verify macOS runtime
+        shell: bash
+        run: |
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = macOS
+          test "$(uname -m)" = arm64

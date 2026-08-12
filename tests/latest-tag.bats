@@ -126,7 +126,7 @@ GIT
   export PATH="$TMP/bin:$PATH"
 }
 
-@test "pipeline publishes only after static checks and both uploaded smoke jobs" {
+@test "pipeline publishes only after static checks and all uploaded smoke jobs" {
   pipeline="$REPO/.buildkite/pipeline.yml"
   release_block="$(sed -n '/label: ":github: Update latest plugin tag"/,/      YAML/p' "$pipeline")"
 
@@ -136,8 +136,15 @@ GIT
   for dependency in plugin-tests plugin-lint shellcheck; do
     [[ "$release_block" == *"- \"$dependency\""* ]]
   done
-  [[ "$release_block" == *'- "live-plugin-smoke-importer"'* ]]
-  [[ "$release_block" == *'- "live-source-ref-smoke-importer"'* ]]
+  for dependency in \
+    live-linux-release-smoke-importer \
+    live-mixed-release-smoke-importer \
+    live-macos-release-smoke-importer \
+    live-linux-source-ref-smoke-importer \
+    live-mixed-source-ref-smoke-importer \
+    live-macos-source-ref-smoke-importer; do
+    [[ "$release_block" == *"- \"$dependency\""* ]]
+  done
   grep -F 'buildkite-agent pipeline upload --no-interpolation' "$pipeline"
   [[ "$release_block" == *'if: '\''build.tag != null && build.tag =~ /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$$/'\'''* ]]
   [[ "$release_block" == *'command: .buildkite/scripts/update-latest-tag'* ]]

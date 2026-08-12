@@ -4,7 +4,7 @@ setup() {
   REPO="$BATS_TEST_DIRNAME/.."
   TMP="$(mktemp -d)"
   export MOCK_LOG="$TMP/mock.log"
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW=".github/workflows/ci.yml"
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/ci.yml","runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
   export BUILDKITE_COMMIT=1111111111111111111111111111111111111111
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION BUILDKITE_PLUGIN__VERSION
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF
@@ -12,6 +12,19 @@ setup() {
   unset MISE_DATA_DIR
   mkdir -p "$TMP/bin"
   : > "$MOCK_LOG"
+  cat > "$TMP/buildkite-gha" <<'EOF'
+#!/usr/bin/env bash
+printf 'runtime=%s %s\n' "$0" "$*" >> "${MOCK_LOG:?}"
+printf 'runtime-configuration=%s\n' "${BUILDKITE_PLUGIN_CONFIGURATION:-}" >> "${MOCK_LOG:?}"
+printf 'darwin-runtime=%s\n' "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" >> "${MOCK_LOG:?}"
+printf 'runtime-root-mode=%s\n' "$(stat -c %a "$(dirname "$(dirname "$0")")")" >> "${MOCK_LOG:?}"
+[[ "${1:-}" == plugin ]]
+[[ "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" == /* ]]
+[[ -x "$BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME" ]]
+exit "${MOCK_IMPORTER_EXIT:-0}"
+EOF
+  chmod +x "$TMP/buildkite-gha"
+  export MOCK_RUNTIME_TEMPLATE="$TMP/buildkite-gha"
   write_mise "$TMP/bin/mise" 2026.8.4
   export PATH="$TMP/bin:$PATH"
 }
@@ -25,7 +38,7 @@ if [[ "\${1:-}" == version ]]; then
   exit
 fi
 printf 'mise=%s\n' "\$*" >> "\${MOCK_LOG:?}"
-printf 'workflow=%s\n' "\${BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW:-}" >> "\${MOCK_LOG:?}"
+printf 'configuration=%s\n' "\${BUILDKITE_PLUGIN_CONFIGURATION:-}" >> "\${MOCK_LOG:?}"
 printf 'commit=%s\n' "\${BUILDKITE_COMMIT:-}" >> "\${MOCK_LOG:?}"
 printf 'group=%s\n' "\${BUILDKITE_GROUP_LABEL:-}" >> "\${MOCK_LOG:?}"
 printf 'minimum-release-age=%s\n' "\${MISE_MINIMUM_RELEASE_AGE:-}" >> "\${MOCK_LOG:?}"
@@ -37,14 +50,31 @@ printf 'url-replacements=%s\n' "\${MISE_URL_REPLACEMENTS:-}" >> "\${MOCK_LOG:?}"
 printf 'installs-dir=%s\n' "\${MISE_INSTALLS_DIR:-}" >> "\${MOCK_LOG:?}"
 printf 'credential-command=%s\n' "\${MISE_GITHUB_CREDENTIAL_COMMAND:-}" >> "\${MOCK_LOG:?}"
 if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${4:-}" == -- && "\${5:-}" == buildkite-gha && "\${6:-}" == plugin ]]; then
-  if [[ -z "\${BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW:-}" ]]; then
-    echo 'buildkite-gha: plugin: BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW is required' >&2
+  if [[ -z "\${BUILDKITE_PLUGIN_CONFIGURATION:-}" ]]; then
+    echo 'buildkite-gha: plugin: BUILDKITE_PLUGIN_CONFIGURATION is required' >&2
     exit 2
   fi
   exit "\${MOCK_IMPORTER_EXIT:-0}"
 fi
-if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${3:-}" == go@1.26.5 && "\${4:-}" == -- && "\${5:-}" == env && "\${6:-}" == CGO_ENABLED=0 && "\${7:-}" == GOTOOLCHAIN=local && "\${8:-}" == go && "\${9:-}" == run && "\${10:-}" == -trimpath && "\${12:-}" == plugin ]]; then
-  exit "\${MOCK_IMPORTER_EXIT:-0}"
+if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${3:-}" == go@1.26.5 && "\${4:-}" == -- && "\${5:-}" == env && "\${6:-}" == -u && "\${7:-}" == GOBIN && "\${8:-}" == CGO_ENABLED=0 && "\${9:-}" == GOTOOLCHAIN=local ]]; then
+  goos="\${10#GOOS=}"
+  goarch="\${11#GOARCH=}"
+  gopath="\${12#GOPATH=}"
+  gomodcache="\${13#GOMODCACHE=}"
+  if [[ "\${14:-}" == go && "\${15:-}" == install && "\${16:-}" == -trimpath && -n "\$goos" && -n "\$goarch" && -n "\$gopath" && -n "\$gomodcache" ]]; then
+    printf 'build=%s/%s:%s:%s:%s\n' "\$goos" "\$goarch" "\$gopath" "\$gomodcache" "\${17:-}" >> "\${MOCK_LOG:?}"
+    if [[ "\${MOCK_BUILD_FAILURE_PLATFORM:-}" == "\$goos/\$goarch" ]]; then
+      exit 42
+    fi
+    gobin="\$gopath/bin"
+    if [[ "\$goos/\$goarch" != linux/amd64 ]]; then
+      gobin="\$gobin/\${goos}_\${goarch}"
+    fi
+    mkdir -p "\$gobin"
+    cp "\${MOCK_RUNTIME_TEMPLATE:?}" "\$gobin/buildkite-gha"
+    chmod +x "\$gobin/buildkite-gha"
+    exit
+  fi
 fi
 exit 64
 EOF
@@ -98,22 +128,40 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "passes exact versions and a configured minimum release age to mise" {
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.8.0
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.9.0
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE=24h
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@0.8.0 -- buildkite-gha plugin' "$MOCK_LOG"
+  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@0.9.0 -- buildkite-gha plugin' "$MOCK_LOG"
   grep -Fx 'minimum-release-age=24h' "$MOCK_LOG"
 }
 
-@test "builds and runs a full buildkite-gha source commit through mise" {
+@test "builds paired runtimes from one source commit and runs only Linux with the private Darwin path" {
   commit=abcdef0123456789abcdef0123456789abcdef01
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [[ "$output" == *"building buildkite-gha source commit $commit with Go 1.26.5"* ]]
-  grep -Fx "mise=--no-config exec go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit plugin" "$MOCK_LOG"
+  [[ "$output" == *"building Linux amd64 and Darwin arm64 runtimes from buildkite-gha source commit $commit with Go 1.26.5"* ]]
+  grep -E "^build=linux/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
+  grep -E "^build=darwin/arm64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
+  grep -E '^runtime=/[^ ]+/go/bin/buildkite-gha plugin$' "$MOCK_LOG"
+  grep -Fx "runtime-configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
+  darwin_runtime="$(sed -n 's/^darwin-runtime=//p' "$MOCK_LOG")"
+  [[ "$darwin_runtime" == /*/go/bin/darwin_arm64/buildkite-gha ]]
+  grep -Fx 'runtime-root-mode=700' "$MOCK_LOG"
+  [ ! -e "$darwin_runtime" ]
   grep -Fx 'minimum-release-age=' "$MOCK_LOG"
+}
+
+@test "stops and removes source runtimes when a cross-build fails" {
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=abcdef0123456789abcdef0123456789abcdef01
+  export MOCK_BUILD_FAILURE_PLATFORM=darwin/arm64
+  run "$REPO/hooks/command"
+  [ "$status" -eq 42 ] || { echo "$output"; false; }
+  ! grep -q '^runtime=' "$MOCK_LOG"
+  source_gopath="$(sed -n 's/^build=linux\/amd64:\([^:]*\):.*$/\1/p' "$MOCK_LOG")"
+  [ -n "$source_gopath" ]
+  [ ! -e "${source_gopath%/*}" ]
 }
 
 @test "rejects invalid or ambiguous source configuration" {
@@ -124,7 +172,7 @@ teardown() { rm -rf "$TMP"; }
   [ ! -s "$MOCK_LOG" ]
 
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=abcdef0123456789abcdef0123456789abcdef01
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.8.0
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.9.0
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
   [[ "$output" == *"version and source-ref are mutually exclusive"* ]]
@@ -132,12 +180,12 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "rejects versions outside the stable plugin contract" {
-  for version in 0.7.2 0.8.0-rc.1 01.2.3 main ABCDEF0123456789ABCDEF0123456789ABCDEF01 abcdef0123456789abcdef0123456789abcdef0 '1.0.0/../../bad'; do
+  for version in 0.8.0 0.9.0-rc.1 01.2.3 main ABCDEF0123456789ABCDEF0123456789ABCDEF01 abcdef0123456789abcdef0123456789abcdef0 '1.0.0/../../bad'; do
     : > "$MOCK_LOG"
     export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION="$version"
     run "$REPO/hooks/command"
     [ "$status" -ne 0 ]
-    [[ "$output" == *"expected latest or an exact stable release from 0.8.0 onward"* ]]
+    [[ "$output" == *"expected latest or an exact stable release from 0.9.0 onward"* ]]
     [ ! -s "$MOCK_LOG" ]
   done
 }
@@ -162,18 +210,25 @@ teardown() { rm -rf "$TMP"; }
   export BUILDKITE_GROUP_LABEL="GitHub Actions / checks"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'workflow=.github/workflows/ci.yml' "$MOCK_LOG"
+  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
   grep -Fx 'commit=HEAD' "$MOCK_LOG"
   grep -Fx 'group=GitHub Actions / checks' "$MOCK_LOG"
 
-  unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW
+  unset BUILDKITE_PLUGIN_CONFIGURATION
   run "$REPO/hooks/command"
   [ "$status" -eq 2 ]
-  [[ "$output" == *"BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW is required"* ]]
+  [[ "$output" == *"BUILDKITE_PLUGIN_CONFIGURATION is required"* ]]
+}
+
+@test "passes future behavioral configuration through unchanged" {
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":"ci.yml","future":{"nested":[true,3]},"runners":"validated-by-buildkite-gha"}'
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
 }
 
 @test "ignores legacy aliases and propagates buildkite-gha failures" {
-  export BUILDKITE_PLUGIN__VERSION=0.8.0
+  export BUILDKITE_PLUGIN__VERSION=0.9.0
   export BUILDKITE_PLUGIN__MINIMUM_RELEASE_AGE=7d
   export MOCK_IMPORTER_EXIT=37
   run "$REPO/hooks/command"

@@ -22,16 +22,15 @@ The Bats suite makes no live network requests. CI runs these checks plus the Bui
 
 ## Run continuous integration smoke tests
 
-The Buildkite Pipelines build runs a required released-runtime smoke test that:
+The Buildkite Pipelines build runs required released-runtime smoke tests that:
 
 - Pins the plugin to the build's full public commit SHA.
-- Omits `version`, then uses mise to select and verify the latest public `buildkite-gha` release.
-- Uploads `.github/workflows/plugin-smoke.yml`.
-- Checks out the same commit in a generated job and verifies the release defaults.
+- Pins `buildkite-gha` v0.9.0 through mise.
+- Runs Linux-only default-image and explicit-image jobs, a mixed Linux-to-macOS graph, and a macOS-only graph.
 
-This test uses Linux x86-64 Buildkite hosted agents but does not need configured secrets or a cache service.
+These tests use Linux x86-64 and native macOS arm64 Buildkite hosted agents without configured secrets or a cache service.
 
-The same build also runs a source smoke with a pinned full `buildkite-gha` commit. It verifies that `source-ref` installs the required Go toolchain, builds the selected source, and runs the generated job without replacing the released-runtime smoke.
+The same build also runs source smokes with a pinned full `buildkite-gha` commit. They verify that `source-ref` installs the required Go toolchain, builds paired Linux amd64 and Darwin arm64 executables from the selected source, and runs Linux, mixed, and macOS-only graphs without replacing the released-runtime smoke.
 
 ## Release the plugin
 
@@ -46,6 +45,6 @@ When changing runtime integration, update `plugin.yml`, `hooks/command`, `.githu
 
 Push the tag after all checks pass. The Buildkite pipeline also tests tag builds.
 
-After every strict stable `vX.Y.Z` tag build passes the static checks and both live smoke tests, a final step moves the lightweight `latest` tag to that release commit. Stable `vX.Y.Z` plugin tags remain immutable; `latest` is an intentionally mutable plugin alias, so `github-actions#latest` selects the newest validated stable plugin release. This is separate from the plugin configuration `version: latest`, which selects the latest stable `buildkite-gha` runtime through mise.
+After every strict stable `vX.Y.Z` tag build passes the static checks and all live release and source smoke tests, a final step moves the lightweight `latest` tag to that release commit. Stable `vX.Y.Z` plugin tags remain immutable; `latest` is an intentionally mutable plugin alias, so `github-actions#latest` selects the newest validated stable plugin release. This is separate from the plugin configuration `version: latest`, which selects the latest stable `buildkite-gha` runtime through mise.
 
 The final step installs a pinned GitHub CLI through the same verified mise bootstrap used by the plugin. It assumes `GITHUB_ACTIONS_PLUGIN_RELEASE_TOKEN` is available through `buildkite-agent secret get` only to trusted tag builds. Use a repository-scoped credential with Contents write access, and configure GitHub tag rules to allow that credential to update only the intended mutable tag without weakening protections for release tags. Rerunning a successful release build is a no-op when `latest` already points directly to its commit. A delayed older or divergent release build refuses to replace a newer `latest`; concurrent updates are retried with a bounded force-with-lease.
