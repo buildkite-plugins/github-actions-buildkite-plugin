@@ -20,7 +20,6 @@ steps:
     plugins:
       - github-actions#v0.7.1:
           workflow: ".github/workflows/ci.yml"
-          version: "0.8.0"
 ```
 
 When this importer step runs, the plugin uploads a dynamic pipeline. Each supported workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key`.
@@ -47,7 +46,6 @@ steps:
     plugins:
       - github-actions#v0.7.1:
           workflow: ".github/workflows/ci.yml"
-          version: "0.8.0"
 
   - label: "Deploy"
     key: "deploy"
@@ -100,7 +98,6 @@ steps:
     plugins:
       - github-actions#v0.7.1:
           workflow: ".github/workflows/ci.yml"
-          version: "0.8.0"
 ```
 
 > [!WARNING]
@@ -146,7 +143,6 @@ steps:
     plugins:
       - github-actions#v0.7.1:
           workflow: ".github/workflows/ci.yml"
-          version: "0.8.0"
 ```
 
 Without this volume, mise uses the agent or user data directory. Treat the mise data directory as executable state: do not share it with untrusted jobs or principals that can modify it. This importer cache is separate from generated-job runtime caching and the workflow's `actions/cache` behavior.
