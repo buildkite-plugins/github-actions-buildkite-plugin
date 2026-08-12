@@ -1,0 +1,28 @@
+name: Plugin mixed source smoke
+
+on:
+  push:
+
+jobs:
+  linux:
+    name: Verify configured Linux default image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Linux runtime
+        shell: bash
+        run: |
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = Linux
+          test -d /opt/hostedtoolcache
+
+  macos:
+    name: Verify Linux to macOS dependency
+    needs: linux
+    runs-on: macos-14
+    steps:
+      - name: Verify macOS runtime
+        shell: bash
+        run: |
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = macOS
+          test "$(uname -m)" = arm64

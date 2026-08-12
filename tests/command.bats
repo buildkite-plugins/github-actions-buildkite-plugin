@@ -12,6 +12,19 @@ setup() {
   unset MISE_DATA_DIR
   mkdir -p "$TMP/bin"
   : > "$MOCK_LOG"
+  cat > "$TMP/buildkite-gha" <<'EOF'
+#!/usr/bin/env bash
+printf 'runtime=%s %s\n' "$0" "$*" >> "${MOCK_LOG:?}"
+printf 'runtime-configuration=%s\n' "${BUILDKITE_PLUGIN_CONFIGURATION:-}" >> "${MOCK_LOG:?}"
+printf 'darwin-runtime=%s\n' "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" >> "${MOCK_LOG:?}"
+printf 'runtime-root-mode=%s\n' "$(stat -c %a "$(dirname "$(dirname "$0")")")" >> "${MOCK_LOG:?}"
+[[ "${1:-}" == plugin ]]
+[[ "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" == /* ]]
+[[ -x "$BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME" ]]
+exit "${MOCK_IMPORTER_EXIT:-0}"
+EOF
+  chmod +x "$TMP/buildkite-gha"
+  export MOCK_RUNTIME_TEMPLATE="$TMP/buildkite-gha"
   write_mise "$TMP/bin/mise" 2026.8.4
   export PATH="$TMP/bin:$PATH"
 }
@@ -43,8 +56,25 @@ if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${4:-}" == -- && "\${5:
   fi
   exit "\${MOCK_IMPORTER_EXIT:-0}"
 fi
-if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${3:-}" == go@1.26.5 && "\${4:-}" == -- && "\${5:-}" == env && "\${6:-}" == CGO_ENABLED=0 && "\${7:-}" == GOTOOLCHAIN=local && "\${8:-}" == go && "\${9:-}" == run && "\${10:-}" == -trimpath && "\${12:-}" == plugin ]]; then
-  exit "\${MOCK_IMPORTER_EXIT:-0}"
+if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${3:-}" == go@1.26.5 && "\${4:-}" == -- && "\${5:-}" == env && "\${6:-}" == -u && "\${7:-}" == GOBIN && "\${8:-}" == CGO_ENABLED=0 && "\${9:-}" == GOTOOLCHAIN=local ]]; then
+  goos="\${10#GOOS=}"
+  goarch="\${11#GOARCH=}"
+  gopath="\${12#GOPATH=}"
+  gomodcache="\${13#GOMODCACHE=}"
+  if [[ "\${14:-}" == go && "\${15:-}" == install && "\${16:-}" == -trimpath && -n "\$goos" && -n "\$goarch" && -n "\$gopath" && -n "\$gomodcache" ]]; then
+    printf 'build=%s/%s:%s:%s:%s\n' "\$goos" "\$goarch" "\$gopath" "\$gomodcache" "\${17:-}" >> "\${MOCK_LOG:?}"
+    if [[ "\${MOCK_BUILD_FAILURE_PLATFORM:-}" == "\$goos/\$goarch" ]]; then
+      exit 42
+    fi
+    gobin="\$gopath/bin"
+    if [[ "\$goos/\$goarch" != linux/amd64 ]]; then
+      gobin="\$gobin/\${goos}_\${goarch}"
+    fi
+    mkdir -p "\$gobin"
+    cp "\${MOCK_RUNTIME_TEMPLATE:?}" "\$gobin/buildkite-gha"
+    chmod +x "\$gobin/buildkite-gha"
+    exit
+  fi
 fi
 exit 64
 EOF
@@ -106,14 +136,32 @@ teardown() { rm -rf "$TMP"; }
   grep -Fx 'minimum-release-age=24h' "$MOCK_LOG"
 }
 
-@test "builds and runs a full buildkite-gha source commit through mise" {
+@test "builds paired runtimes from one source commit and runs only Linux with the private Darwin path" {
   commit=abcdef0123456789abcdef0123456789abcdef01
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [[ "$output" == *"building buildkite-gha source commit $commit with Go 1.26.5"* ]]
-  grep -Fx "mise=--no-config exec go@1.26.5 -- env CGO_ENABLED=0 GOTOOLCHAIN=local go run -trimpath github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit plugin" "$MOCK_LOG"
+  [[ "$output" == *"building Linux amd64 and Darwin arm64 runtimes from buildkite-gha source commit $commit with Go 1.26.5"* ]]
+  grep -E "^build=linux/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
+  grep -E "^build=darwin/arm64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
+  grep -E '^runtime=/[^ ]+/go/bin/buildkite-gha plugin$' "$MOCK_LOG"
+  grep -Fx "runtime-configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
+  darwin_runtime="$(sed -n 's/^darwin-runtime=//p' "$MOCK_LOG")"
+  [[ "$darwin_runtime" == /*/go/bin/darwin_arm64/buildkite-gha ]]
+  grep -Fx 'runtime-root-mode=700' "$MOCK_LOG"
+  [ ! -e "$darwin_runtime" ]
   grep -Fx 'minimum-release-age=' "$MOCK_LOG"
+}
+
+@test "stops and removes source runtimes when a cross-build fails" {
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=abcdef0123456789abcdef0123456789abcdef01
+  export MOCK_BUILD_FAILURE_PLATFORM=darwin/arm64
+  run "$REPO/hooks/command"
+  [ "$status" -eq 42 ] || { echo "$output"; false; }
+  ! grep -q '^runtime=' "$MOCK_LOG"
+  source_gopath="$(sed -n 's/^build=linux\/amd64:\([^:]*\):.*$/\1/p' "$MOCK_LOG")"
+  [ -n "$source_gopath" ]
+  [ ! -e "${source_gopath%/*}" ]
 }
 
 @test "rejects invalid or ambiguous source configuration" {

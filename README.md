@@ -37,7 +37,7 @@ Configure runtime selection with the following properties:
 > [!NOTE]
 > Plugin and runtime versions are independent. Pin `version` to keep release-version selection stable, or use `latest` to follow stable runtime releases. Increase `minimum-release-age` (for example, to `24h`) to delay newly published releases. If you update the runtime version, use its matching compatibility guide.
 
-To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build that source before running `buildkite-gha plugin`. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
+To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build Linux amd64 and Darwin arm64 executables from that exact source, then runs the Linux importer. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
 
 The plugin validates only the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`. It passes all behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
 

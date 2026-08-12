@@ -38,8 +38,8 @@ steps:
           plugins:
             - github-actions#$$commit:
                 workflow: .github/workflows/plugin-smoke.yml
-        - label: ":github: Live source-ref smoke"
-          key: "live-source-ref-smoke-importer"
+        - label: ":github: Live Linux source-ref smoke"
+          key: "live-linux-source-ref-smoke-importer"
           agents:
             queue: "hosted"
           timeout_in_minutes: 20
@@ -47,9 +47,45 @@ steps:
             automatic: false
           env:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
-            BUILDKITE_GHA_TARGET_QUEUE: "hosted"
           plugins:
             - github-actions#$$commit:
                 workflow: .github/workflows/plugin-source-smoke.yml
-                source-ref: a0e5416751456411fa09f5cf62421622e6cb57f7
+                source-ref: 782270db1b6d400f38b434aeee6d2e93f3634b45
+                runners:
+                  - runs-on: ubuntu-latest
+                    queue: hosted
+        - label: ":github: Live mixed source-ref smoke"
+          key: "live-mixed-source-ref-smoke-importer"
+          agents:
+            queue: "hosted"
+          timeout_in_minutes: 20
+          retry:
+            automatic: false
+          env:
+            BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
+          plugins:
+            - github-actions#$$commit:
+                workflow: .buildkite/fixtures/plugin-source-mixed.yml
+                source-ref: 782270db1b6d400f38b434aeee6d2e93f3634b45
+                runners:
+                  - runs-on: ubuntu-latest
+                    queue: hosted
+                  - runs-on: macos-14
+                    queue: macos
+        - label: ":github: Live macOS-only source-ref smoke"
+          key: "live-macos-source-ref-smoke-importer"
+          agents:
+            queue: "hosted"
+          timeout_in_minutes: 20
+          retry:
+            automatic: false
+          env:
+            BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
+          plugins:
+            - github-actions#$$commit:
+                workflow: .buildkite/fixtures/plugin-source-macos.yml
+                source-ref: 782270db1b6d400f38b434aeee6d2e93f3634b45
+                runners:
+                  - runs-on: macos-14
+                    queue: macos
       YAML
