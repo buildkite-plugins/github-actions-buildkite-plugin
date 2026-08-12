@@ -100,7 +100,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.8.0:
+      - github-actions#v0.9.0:
           workflow: ".github/workflows/ci.yml"
           runners:
             - runs-on: ubuntu-latest
