@@ -18,13 +18,13 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.9.3:
+      - github-actions#v0.10.0:
           workflows: "*"
 ```
 
 The selection is resolved against files tracked by Git. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key`.
 
-The Git ref after `github-actions#` selects the plugin code. Use a specific release such as `github-actions#v0.9.3` for an immutable pin, or use `github-actions#latest` to follow the newest stable plugin release that has passed the required validation. This is separate from the `version` property below, which selects the `buildkite-gha` runtime.
+The Git ref after `github-actions#` selects the plugin code. Use a specific release such as `github-actions#v0.10.0` for an immutable pin, or use `github-actions#latest` to follow the newest stable plugin release that has passed the required validation. This is separate from the `version` property below, which selects the `buildkite-gha` runtime.
 
 Configure runtime selection with the following properties:
 
@@ -51,7 +51,7 @@ Use an array to select explicit workflow paths without a glob:
 
 ```yaml
 plugins:
-  - github-actions#v0.9.3:
+  - github-actions#v0.10.0:
       workflows:
         - .github/workflows/ci.yml
         - .github/workflows/release.yml
@@ -83,7 +83,7 @@ steps:
   - label: ":github: Tests"
     key: "github-actions-tests"
     plugins:
-      - github-actions#v0.9.3:
+      - github-actions#v0.10.0:
           workflows: ".github/workflows/ci.yml"
 
   - label: "Deploy"
@@ -133,7 +133,7 @@ steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
     plugins:
-      - github-actions#v0.9.3:
+      - github-actions#v0.10.0:
           workflows: ".github/workflows/ci.yml"
           runners:
             - runs-on: ubuntu-latest
@@ -186,7 +186,7 @@ steps:
     key: "github-actions"
     cache: "/cache/bkcache/mise"
     plugins:
-      - github-actions#v0.9.3:
+      - github-actions#v0.10.0:
           workflows: ".github/workflows/ci.yml"
 ```
 
