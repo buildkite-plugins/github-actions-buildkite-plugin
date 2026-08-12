@@ -10,7 +10,17 @@ requirements:
   - mktemp
   - cp
 configuration:
+  required:
+    - workflows
   properties:
+    workflows:
+      type: array
+      minItems: 1
+      items:
+        type: string
+        minLength: 1
+        pattern: "^[^*?\\[\\]{}]+\\.ya?ml$"
+      description: Explicit tracked .yml or .yaml workflow paths.
     version:
       type: string
       default: latest
