@@ -3,7 +3,7 @@
 > [!NOTE]
 > Running GitHub Actions workflows in Buildkite is currently in public preview. To report issues with the preview, [open an issue in the `buildkite-gha` repository](https://github.com/buildkite/buildkite-gha/issues). For help migrating to native Buildkite Pipelines steps, contact the [Buildkite Support team](mailto:support@buildkite.com).
 >
-> The plugin and runtime are under active development. Review the [`buildkite-gha` v0.11.0 compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.11.0/docs/compatibility.md) before adding a workflow.
+> The plugin and runtime are under active development. Review the [`buildkite-gha` v0.12.1 compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.12.1/docs/compatibility.md) before adding a workflow.
 
 The GitHub Actions Buildkite plugin converts a supported [GitHub Actions workflow](https://docs.github.com/en/actions/using-workflows/about-workflows) into native [Buildkite Pipelines](https://buildkite.com/docs/pipelines) jobs without creating a GitHub Actions workflow run. This lets you start migrating a workflow before [converting it into native Buildkite Pipelines steps](https://buildkite.com/docs/pipelines/migration/from-githubactions).
 
@@ -162,7 +162,7 @@ Generated jobs need network access for anything they download at runtime:
 - Jobs that use public GitHub Actions need outbound HTTPS access to `codeload.github.com`, where the runtime downloads each action's source archive.
 - Jobs that use JavaScript actions need outbound HTTPS access to the managed Node.js and `mise` downloads. Actions that declare `node16` run on managed Node 16.20.2 and produce a deprecation warning. Actions that declare `node20` or `node24` run on managed Node 24.18.0. Managed Node binaries require glibc 2.28 or newer. Shell-only workflows do not have this glibc requirement.
 
-When resolving a mutable tag or branch for a public action, the importer uses an available job-scoped GitHub token only for the GitHub API request. If it cannot obtain or register the token, it reports a warning and retries anonymously. A lowercase, full 40-character commit SHA does not require an API request. The importer and generated jobs download the resolved action archive anonymously from `codeload.github.com`.
+When resolving a mutable tag or branch for a public action, the importer uses a dedicated action-source token only for public GitHub metadata requests and reuses it across the selected workflows and nested composite actions. If it cannot obtain the token, it reports a warning and retries anonymously. A lowercase, full 40-character commit SHA does not require an API request. Credential-repository metadata requests and all action archive downloads from `codeload.github.com` remain anonymous.
 
 Configured Linux profiles select an immutable hosted-toolchains image and enable its `/opt/hostedtoolcache`. An explicit `runners[].image` override must provide the same tool-cache path and is supported only when the matching jobs run on Buildkite hosted agents or Agent Stack for Kubernetes controller v0.30.0 or later. Do not configure Linux profiles for other self-hosted environments that cannot provision the generated job image. macOS profiles never select an image.
 
@@ -178,10 +178,10 @@ Pull request builds receive `pull_request` context. Branch and tag builds receiv
 
 Supported, audited `actions/checkout` revisions can check out the exact event repository and commit from `github.com`. Checkout runs anonymously when repository-provider credentials are not enabled. Private checkout uses Buildkite repository-provider Git credentials when they are enabled and authorized for the job.
 
-Checkout credentials do not populate `GITHUB_TOKEN` or `github.token`, enable private actions, or allow alternate repositories or refs. A workflow can receive a temporary GitHub token only when it makes a supported static token reference and the Buildkite organization has enabled the job-bound token service. When the workflow omits `permissions`, the runtime requests the narrow `contents: read` default. The compatibility guide describes the [complete credential boundary](https://github.com/buildkite/buildkite-gha/blob/v0.11.0/docs/compatibility.md#repositories-credentials-and-github-services).
+Checkout credentials do not populate `GITHUB_TOKEN` or `github.token`, enable private actions, or allow alternate repositories or refs. A workflow can receive a temporary GitHub token only when it makes a supported static token reference and both the Buildkite organization feature and the pipeline's default-off token setting are enabled. When the workflow omits `permissions`, the runtime requests exactly `contents: read` without inheriting GitHub repository or organization defaults. Write access requires an explicit top-level permissions map; an empty map or scopes set to `none` mint no token. The compatibility guide describes the [complete credential boundary](https://github.com/buildkite/buildkite-gha/blob/v0.12.1/docs/compatibility.md#repositories-credentials-and-github-services).
 
 > [!WARNING]
-> The job-bound token service does not determine whether a fork or actor is trusted. If a pull request can change an imported workflow, that workflow can request any repository permission enabled by the service. Do not allow untrusted workflow changes to receive write permissions.
+> Temporary token issuance verifies the workflow and build provenance. Job-level permissions and reusable-workflow jobs are rejected, pull request ancestry is capped at `contents: read`, and merge queue ancestry is denied. Review the workflow-token restrictions before enabling the service.
 
 ## Cache mise installations
 
@@ -207,7 +207,8 @@ The public preview supports an evolving subset of GitHub Actions. Common support
 - Native macOS Apple Silicon jobs using `macos-latest`, `macos-15`, or `macos-14` when each used label has an explicit Darwin arm64 queue mapping.
 - Bash and `sh` run steps.
 - Static job dependencies and matrices, including `include` and `exclude`, up to 256 expanded instances per job.
-- Supported job and step conditions, outputs, timeouts, and step-level `continue-on-error` behavior.
+- Supported job and step conditions, outputs, timeouts, literal job-level `continue-on-error`, and step-level `continue-on-error` behavior. Job-level expressions are not supported.
+- Workspace-confined `hashFiles()` in supported step conditions and step runtime fields, with bounded patterns, matches, and input size.
 - Public JavaScript, composite, local, and compiler-verified Dockerfile actions.
 - Local reusable workflows with statically resolvable inputs.
 - Supported, audited revisions of `actions/checkout`, `actions/upload-artifact`, `actions/download-artifact`, and `actions/cache`.
@@ -223,10 +224,10 @@ Important limitations include:
 - The complete `github.event` payload and GitHub-specific event behavior are not available at runtime.
 - Unaudited revisions of actions with native support are rejected.
 
-If a feature is not listed in the [`buildkite-gha` v0.11.0 compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.11.0/docs/compatibility.md), treat it as unsupported.
+If a feature is not listed in the [`buildkite-gha` v0.12.1 compatibility guide](https://github.com/buildkite/buildkite-gha/blob/v0.12.1/docs/compatibility.md), treat it as unsupported.
 
 > [!WARNING]
-> All steps in an imported job share a workspace, environment changes, processes, and action lifecycle. Docker actions provide packaging, not a security boundary. Review the [`buildkite-gha` v0.11.0 security model](https://github.com/buildkite/buildkite-gha/blob/v0.11.0/docs/security.md) before running untrusted workflow code.
+> All steps in an imported job share a workspace, environment changes, processes, and action lifecycle. Docker actions provide packaging, not a security boundary. Review the [`buildkite-gha` v0.12.1 security model](https://github.com/buildkite/buildkite-gha/blob/v0.12.1/docs/security.md) before running untrusted workflow code.
 
 ## Develop the plugin
 
