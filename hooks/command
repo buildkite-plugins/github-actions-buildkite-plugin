@@ -3,25 +3,29 @@ set -euo pipefail
 umask 077
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+mise_data_dir_override="${MISE_DATA_DIR:-}"
+for variable in "${!MISE_@}"; do
+  unset "$variable"
+done
+if [[ -n "$mise_data_dir_override" ]]; then
+  export MISE_DATA_DIR="$mise_data_dir_override"
+fi
 # Path is resolved from this hook at runtime.
 # shellcheck disable=SC1091
-. "${PLUGIN_ROOT}/lib/install.sh"
+. "${PLUGIN_ROOT}/lib/mise.sh"
 
-workflow="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_WORKFLOW:-${BUILDKITE_PLUGIN__WORKFLOW:-}}"
-configured_version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-${BUILDKITE_PLUGIN__VERSION:-}}"
-source_ref="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_BUILDKITE_GHA_SOURCE_REF:-${BUILDKITE_PLUGIN__BUILDKITE_GHA_SOURCE_REF:-}}"
+configured_version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-latest}"
+configured_version="${configured_version#v}"
+minimum_release_age="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE:-0s}"
 
-if [[ -z "$workflow" ]]; then
-  echo "github-actions plugin: workflow is required" >&2
-  exit 1
-fi
-if [[ "$workflow" == -* || "$workflow" == *$'\n'* || "$workflow" == *$'\r'* ]]; then
-  echo "github-actions plugin: workflow must be a path, not an option or multiline value" >&2
-  exit 1
-fi
-if [[ -n "$source_ref" && -n "$configured_version" ]]; then
-  echo "github-actions plugin: version and buildkite-gha-source-ref are mutually exclusive" >&2
-  exit 1
+if [[ "$configured_version" != latest ]]; then
+  if [[ "$configured_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] &&
+    (( BASH_REMATCH[1] > 0 || BASH_REMATCH[2] >= 8 )); then
+    :
+  else
+    echo "github-actions plugin: invalid CLI version '$configured_version'; expected latest or an exact stable release from 0.8.0 onward" >&2
+    exit 1
+  fi
 fi
 
 case "$(uname -s)" in
@@ -33,49 +37,12 @@ case "$(uname -m)" in
   *) echo "github-actions plugin: unsupported architecture '$(uname -m)'; only Linux x86-64 is supported" >&2; exit 1 ;;
 esac
 
-if [[ ! "${BUILDKITE_COMMIT:-}" =~ ^[0-9a-f]{40}$ ]]; then
-  gha_require git
-  resolved_commit="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || {
-    gha_error "failed to resolve the checked-out commit"
-    exit 1
-  }
-  if [[ ! "$resolved_commit" =~ ^[0-9a-f]{40}$ ]]; then
-    gha_error "checked-out commit did not resolve to a full lowercase 40-character commit"
-    exit 1
-  fi
-  export BUILDKITE_COMMIT="$resolved_commit"
-fi
-
 echo "~~~ :github: Prepare workflow"
 
-upload_args=(upload "$workflow")
-
-if [[ -n "$source_ref" ]]; then
-  resolved_source_ref="$source_ref"
-  if [[ "$source_ref" == latest ]]; then
-    gha_require git
-    match="$(git ls-remote --exit-code --refs https://github.com/buildkite/buildkite-gha.git refs/heads/main 2>/dev/null)" || {
-      gha_error "failed to resolve buildkite-gha source latest"
-      exit 1
-    }
-    if [[ ! "$match" =~ ^([0-9a-f]{40})[[:space:]]+refs/heads/main$ ]]; then
-      gha_error "buildkite-gha source latest did not resolve to exactly one commit"
-      exit 1
-    fi
-    resolved_source_ref="${BASH_REMATCH[1]}"
-    echo "github-actions plugin: buildkite-gha source latest resolved to $resolved_source_ref" >&2
-  elif [[ ! "$source_ref" =~ ^[0-9a-f]{40}$ ]]; then
-    gha_error "invalid buildkite-gha source ref '$source_ref'; expected latest or a full lowercase 40-character commit"
-    exit 1
-  fi
-  gha_require mise
-  echo "github-actions plugin: running buildkite-gha source at $resolved_source_ref with Go 1.26.5" >&2
-  MISE_YES=1 mise --no-config x go@1.26.5 -- \
-    env CGO_ENABLED=0 GOTOOLCHAIN=local \
-    go run -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${resolved_source_ref}" \
-    "${upload_args[@]}"
-else
-  distribution="$(install_buildkite_gha "${configured_version:-0.7.1}")"
-  trap 'rm -rf -- "$distribution"' EXIT
-  "${distribution}/buildkite-gha" "${upload_args[@]}"
-fi
+setup_mise
+export MISE_GITHUB_GH_CLI_TOKENS=false
+export MISE_MINIMUM_RELEASE_AGE="$minimum_release_age"
+export MISE_YES=1
+exec "$MISE_BIN" --no-config exec \
+  "github:buildkite/buildkite-gha@${configured_version}" \
+  -- buildkite-gha plugin

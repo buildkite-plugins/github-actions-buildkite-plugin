@@ -30,10 +30,11 @@ For a released runtime, use the following configuration:
 | Option | Required | Default | Description |
 | --- | --- | --- | --- |
 | `workflow` | Yes | — | Path to the GitHub Actions workflow in the repository. |
-| `version` | No | `0.7.1` | Exact `buildkite-gha` runtime version to run. |
+| `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.8.0` onward. |
+| `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
 
 > [!NOTE]
-> Plugin v0.7.1 uses runtime v0.7.1 by default. The examples in this README set `version` to `0.8.0` to use the newer runtime release. Plugin and runtime versions are independent. If you update the runtime version, use its matching compatibility guide.
+> Plugin and runtime versions are independent. Pin `version` to keep release-version selection stable, or use `latest` to follow stable runtime releases. Increase `minimum-release-age` (for example, to `24h`) to delay newly published releases. If you update the runtime version, use its matching compatibility guide.
 
 ## Migrate incrementally
 
@@ -60,12 +61,12 @@ As you replace jobs with native Buildkite Pipelines steps, the remaining support
 
 The plugin and the `buildkite-gha` runtime work together to run the workflow:
 
-- The plugin reads its configuration, downloads and verifies the selected `buildkite-gha` release, and starts the pipeline upload.
-- `buildkite-gha` checks that the workflow is supported, converts its jobs into Buildkite Pipelines command jobs, uploads them, and runs each generated job.
+- The plugin uses an existing compatible `mise`, or installs a pinned verified copy, then asks mise to select and run the configured `buildkite-gha` release.
+- The hidden `buildkite-gha plugin` command reads the plugin configuration, checks that the workflow is supported, converts its jobs into Buildkite Pipelines command jobs, uploads them, and runs each generated job.
 
-You do not need to install `buildkite-gha`. The plugin downloads the Linux x86-64 runtime binary, then verifies its checksum and archive contents before running it.
+You do not need to install `mise` or `buildkite-gha`. Mise verifies the selected Linux x86-64 runtime release when installing it, then caches the installation before running it.
 
-Generated jobs that use JavaScript actions prepare a verified, managed `mise` installation for the supported Node.js versions. Shell-only jobs and jobs that use only native adapters or Docker do not install `mise`. The importer step does not need `mise` when it uses a released runtime.
+Generated jobs that use JavaScript actions also prepare a verified, managed `mise` installation for the supported Node.js versions. Shell-only generated jobs and jobs that use only native adapters or Docker do not install `mise`.
 
 The importer passes the runtime and compiled execution plans to generated jobs using Buildkite Pipelines artifacts. Each job verifies these files before using them. Buildkite Pipelines handles scheduling, logs, retries, cancellation, and build status.
 
@@ -75,7 +76,7 @@ The importer step needs:
 
 - A Linux x86-64 agent.
 - Buildkite agent v3.34.1 or later in the v3 release series. Agent v4 is not supported because the runtime uses the `--reject-secrets` option, which Agent v4 does not provide.
-- Bash, `curl`, `tar`, `sha256sum`, `awk`, `grep`, `find`, `sed`, `sort`, `mktemp`, and `cp`, as listed in [`plugin.yml`](plugin.yml).
+- Bash, `curl`, `tar`, `sha256sum`, `mktemp`, and `cp`, as listed in [`plugin.yml`](plugin.yml). The download tools are used only when a compatible `mise` is not already on `PATH`.
 - Git when `BUILDKITE_COMMIT` is not already a full commit SHA.
 - Outbound HTTPS access to public GitHub release and action sources.
 
@@ -133,22 +134,22 @@ Checkout credentials do not populate `GITHUB_TOKEN` or `github.token`, enable pr
 > [!WARNING]
 > The job-bound token service does not determine whether a fork or actor is trusted. If a pull request can change an imported workflow, that workflow can request any repository permission enabled by the service. Do not allow untrusted workflow changes to receive write permissions.
 
-## Cache the runtime download
+## Cache mise installations
 
-On Buildkite hosted agents, attach the plugin cache volume to speed up the importer:
+On Buildkite hosted agents, attach a mise data cache to avoid reinstalling mise and `buildkite-gha`:
 
 ```yaml
 steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
-    cache: "/cache/bkcache/github-actions-buildkite-plugin"
+    cache: "/cache/bkcache/mise"
     plugins:
       - github-actions#v0.7.1:
           workflow: ".github/workflows/ci.yml"
           version: "0.8.0"
 ```
 
-Without this volume, the plugin uses an agent or user cache when one is available, then falls back to a temporary directory. The plugin verifies cached archives before using them. Cache misses affect performance, not correctness. This importer cache is separate from generated-job runtime caching and the workflow's `actions/cache` behavior.
+Without this volume, mise uses the agent or user data directory. Treat the mise data directory as executable state: do not share it with untrusted jobs or principals that can modify it. This importer cache is separate from generated-job runtime caching and the workflow's `actions/cache` behavior.
 
 ## Supported functionality and limitations
 
@@ -176,26 +177,6 @@ If a feature is not listed in the [`buildkite-gha` v0.8.0 compatibility guide](h
 
 > [!WARNING]
 > All steps in an imported job share a workspace, environment changes, processes, and action lifecycle. Docker actions provide packaging, not a security boundary. Review the [`buildkite-gha` v0.8.0 security model](https://github.com/buildkite/buildkite-gha/blob/v0.8.0/docs/security.md) before running untrusted workflow code.
-
-## Test unreleased runtime source
-
-> [!WARNING]
-> Use `buildkite-gha-source-ref` only for integration testing. It runs code from the public runtime source repository instead of a verified release archive.
-
-The importer must provide `mise` when it runs runtime source:
-
-```yaml
-plugins:
-  - mise#a5845c5082d3a4fe36dd77ae74973dfc86fc91a2:
-      version: "2026.5.12"
-  - github-actions#v0.7.1:
-      workflow: ".github/workflows/ci.yml"
-      buildkite-gha-source-ref: "latest"
-```
-
-`latest` resolves the `buildkite/buildkite-gha` `main` branch once, logs the full commit SHA, and runs that immutable commit with `mise --no-config` and Go 1.26.5. Use the logged commit instead of `latest` for reproducible retries. You can also set `buildkite-gha-source-ref` to a full lowercase 40-character commit SHA. The `version` and `buildkite-gha-source-ref` options are mutually exclusive.
-
-The mise plugin requires a mise configuration in the repository. Source mode does not test release archives, checksums, or caching. Released mode remains unchanged. The `main` branch can contain behavior that is not part of runtime v0.8.0, so do not use the v0.8.0 compatibility guide to describe an unreleased source commit.
 
 ## Develop the plugin
 
