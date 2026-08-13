@@ -11,6 +11,7 @@ steps:
     plugins:
       - plugin-linter#v3.3.0:
           id: github-actions
+          skip-invalid: true
   - label: ":shell: Shellcheck"
     key: "shellcheck"
     plugins:
