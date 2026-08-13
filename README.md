@@ -26,7 +26,7 @@ steps:
 
 The selector must be an explicit path to a tracked `.yml` or `.yaml` workflow file. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key` and must be scheduled explicitly on either a Linux amd64 or native macOS arm64 agent. The plugin's `runners` mappings schedule generated workflow jobs only; they do not select or change the importer agent.
 
-The Git ref after `github-actions#` selects the plugin code. Use a specific release such as `github-actions#v0.10.0` for an immutable pin, or use `github-actions#latest` to follow the newest stable plugin release that has passed the required validation. This is separate from the `version` property below, which selects the `buildkite-gha` runtime.
+The Git ref after `github-actions#` selects the plugin code. Use a specific release such as `github-actions#v0.11.0` for an immutable pin, or use `github-actions#latest` to follow the newest stable plugin release that has passed the required validation. This is separate from the `version` property below, which selects the `buildkite-gha` runtime.
 
 Configure runtime selection with the following properties:
 
