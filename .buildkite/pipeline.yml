@@ -97,7 +97,7 @@ steps:
           plugins:
             - github-actions#v0.11.0:
                 workflows:
-                  - .buildkite/fixtures/plugin-release-macos.yml
+                  - .buildkite/fixtures/plugin-native-importer-release-macos.yml
                 version: 0.13.0
                 runners:
                   - runs-on: macos-14
@@ -112,7 +112,7 @@ steps:
           plugins:
             - github-actions#v0.11.0:
                 workflows:
-                  - .buildkite/fixtures/plugin-release-mixed.yml
+                  - .buildkite/fixtures/plugin-native-importer-release-mixed.yml
                 version: 0.13.0
                 runners:
                   - runs-on: ubuntu-latest
