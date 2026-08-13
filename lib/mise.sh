@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 MISE_BOOTSTRAP_VERSION="2026.8.4"
-MISE_BOOTSTRAP_SHA256="7d49c0c3633572f57e2383aec5284067675122b6824990f6ac927c5a40c81994"
 MISE_MINIMUM_VERSION="2026.5.12"
 
 mise_error() { echo "github-actions plugin: $*" >&2; }
@@ -43,13 +42,26 @@ mise_data_dir() {
 }
 
 install_mise() (
-  local destination_dir archive extracted staged url checksum_output actual_checksum
-  for command in curl tar sha256sum mktemp cp; do
+  local platform="$1" destination_dir archive extracted staged asset checksum url checksum_output actual_checksum
+  for command in curl tar mktemp cp; do
     command -v "$command" >/dev/null 2>&1 || {
       mise_error "required command '$command' was not found"
       return 1
     }
   done
+  case "$platform" in
+    linux/amd64)
+      asset="mise-v${MISE_BOOTSTRAP_VERSION}-linux-x64-musl.tar.gz"
+      checksum="7d49c0c3633572f57e2383aec5284067675122b6824990f6ac927c5a40c81994"
+      command -v sha256sum >/dev/null 2>&1 || { mise_error "required command 'sha256sum' was not found"; return 1; }
+      ;;
+    darwin/arm64)
+      asset="mise-v${MISE_BOOTSTRAP_VERSION}-macos-arm64.tar.gz"
+      checksum="5d79a4e5df212017931e1b352715985a8680e7fe409e071aef723261db3a5b89"
+      command -v shasum >/dev/null 2>&1 || { mise_error "required command 'shasum' was not found"; return 1; }
+      ;;
+    *) mise_error "unsupported mise bootstrap platform '$platform'"; return 1 ;;
+  esac
 
   destination_dir="$(dirname "$MISE_BIN")"
   mkdir -p "$destination_dir"
@@ -58,14 +70,18 @@ install_mise() (
   staged="$(mktemp "${destination_dir}/.mise.XXXXXX")"
   trap 'rm -rf -- "$archive" "$extracted" "$staged"' EXIT
 
-  url="https://github.com/jdx/mise/releases/download/v${MISE_BOOTSTRAP_VERSION}/mise-v${MISE_BOOTSTRAP_VERSION}-linux-x64-musl.tar.gz"
+  url="https://github.com/jdx/mise/releases/download/v${MISE_BOOTSTRAP_VERSION}/${asset}"
   echo "github-actions plugin: installing mise ${MISE_BOOTSTRAP_VERSION}" >&2
   curl --disable --fail --silent --show-error --location \
     --proto '=https' --proto-redir '=https' --tlsv1.2 \
     "$url" --output "$archive"
-  checksum_output="$(sha256sum "$archive")"
+  if [[ "$platform" == linux/amd64 ]]; then
+    checksum_output="$(sha256sum "$archive")"
+  else
+    checksum_output="$(shasum -a 256 "$archive")"
+  fi
   actual_checksum="${checksum_output%% *}"
-  [[ "$actual_checksum" == "$MISE_BOOTSTRAP_SHA256" ]] || {
+  [[ "$actual_checksum" == "$checksum" ]] || {
     mise_error "mise release archive checksum verification failed"
     return 1
   }
@@ -86,7 +102,7 @@ install_mise() (
 )
 
 setup_mise() {
-  local candidate data_dir
+  local platform="$1" candidate data_dir platform_dir
   data_dir="$(mise_data_dir)"
   export MISE_DATA_DIR="$data_dir"
   if candidate="$(command -v mise 2>/dev/null)" && mise_is_compatible "$candidate"; then
@@ -97,8 +113,9 @@ setup_mise() {
   if [[ -n "${candidate:-}" ]]; then
     mise_error "mise on PATH is older than ${MISE_MINIMUM_VERSION}; using the managed version"
   fi
-  MISE_BIN="${data_dir}/github-actions-buildkite-plugin/mise/${MISE_BOOTSTRAP_VERSION}/mise"
+  platform_dir="${platform//\//-}"
+  MISE_BIN="${data_dir}/github-actions-buildkite-plugin/mise/${MISE_BOOTSTRAP_VERSION}/${platform_dir}/mise"
   if ! mise_is_compatible "$MISE_BIN"; then
-    install_mise
+    install_mise "$platform"
   fi
 }

@@ -10,6 +10,7 @@ setup() {
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF
   unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE BUILDKITE_PLUGIN__MINIMUM_RELEASE_AGE
   unset MISE_DATA_DIR
+  export MOCK_HOST_PLATFORM=linux/amd64
   mkdir -p "$TMP/bin"
   : > "$MOCK_LOG"
   cat > "$TMP/buildkite-gha" <<'EOF'
@@ -17,10 +18,16 @@ setup() {
 printf 'runtime=%s %s\n' "$0" "$*" >> "${MOCK_LOG:?}"
 printf 'runtime-configuration=%s\n' "${BUILDKITE_PLUGIN_CONFIGURATION:-}" >> "${MOCK_LOG:?}"
 printf 'darwin-runtime=%s\n' "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" >> "${MOCK_LOG:?}"
+printf 'linux-runtime=%s\n' "${BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME:-}" >> "${MOCK_LOG:?}"
 printf 'runtime-root-mode=%s\n' "$(stat -c %a "$(dirname "$(dirname "$0")")")" >> "${MOCK_LOG:?}"
 [[ "${1:-}" == plugin ]]
-[[ "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" == /* ]]
-[[ -x "$BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME" ]]
+if [[ "${MOCK_HOST_PLATFORM:?}" == linux/amd64 ]]; then
+  [[ "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" == /*/go/bin/darwin_arm64/buildkite-gha ]]
+  [[ -x "$BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME" ]]
+else
+  [[ "${BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME:-}" == /*/go/bin/linux_amd64/buildkite-gha ]]
+  [[ -x "$BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME" ]]
+fi
 exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
   chmod +x "$TMP/buildkite-gha"
@@ -67,7 +74,7 @@ if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${3:-}" == go@1.26.5 &&
       exit 42
     fi
     gobin="\$gopath/bin"
-    if [[ "\$goos/\$goarch" != linux/amd64 ]]; then
+    if [[ "\$goos/\$goarch" != "\${MOCK_HOST_PLATFORM:?}" ]]; then
       gobin="\$gobin/\${goos}_\${goarch}"
     fi
     mkdir -p "\$gobin"
@@ -107,11 +114,30 @@ printf 'sha256sum=%s\n' "$*" >> "${MOCK_LOG:?}"
 [[ "${MOCK_CHECKSUM_FAILURE:-}" != 1 ]] || exit 1
 printf '%s  %s\n' "${MOCK_MISE_SHA256:?}" "$1"
 EOF
-  chmod +x "$TMP/bin/curl" "$TMP/bin/sha256sum"
+  cat > "$TMP/bin/shasum" <<'EOF'
+#!/usr/bin/env bash
+printf 'shasum=%s\n' "$*" >> "${MOCK_LOG:?}"
+[[ "$1" == -a && "$2" == 256 ]]
+printf '%s  %s\n' "${MOCK_MISE_SHA256:?}" "$3"
+EOF
+  chmod +x "$TMP/bin/curl" "$TMP/bin/sha256sum" "$TMP/bin/shasum"
   export MOCK_MISE_ARCHIVE="$TMP/mise.tar.gz"
   export MOCK_MISE_SHA256=7d49c0c3633572f57e2383aec5284067675122b6824990f6ac927c5a40c81994
   export MISE_DATA_DIR="$TMP/mise-data"
   export PATH="$TMP/bin:/usr/bin:/bin"
+}
+
+mock_host() {
+  export MOCK_HOST_PLATFORM="$1"
+  cat > "$TMP/bin/uname" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == -s ]]; then
+  [[ "$1" == linux/amd64 ]] && echo Linux || echo Darwin
+else
+  [[ "$1" == linux/amd64 ]] && echo x86_64 || echo arm64
+fi
+EOF
+  chmod +x "$TMP/bin/uname"
 }
 
 teardown() { rm -rf "$TMP"; }
@@ -150,12 +176,12 @@ teardown() { rm -rf "$TMP"; }
   grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
 }
 
-@test "builds paired runtimes from one source commit and runs only Linux with the private Darwin path" {
+@test "builds paired runtimes and runs the native Linux importer with the Darwin path" {
   commit=abcdef0123456789abcdef0123456789abcdef01
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [[ "$output" == *"building Linux amd64 and Darwin arm64 runtimes from buildkite-gha source commit $commit with Go 1.26.5"* ]]
+  [[ "$output" == *"building native linux/amd64 importer and darwin/arm64 runtime from buildkite-gha source commit $commit with Go 1.26.5"* ]]
   grep -E "^build=linux/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
   grep -E "^build=darwin/arm64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
   grep -E '^runtime=/[^ ]+/go/bin/buildkite-gha plugin$' "$MOCK_LOG"
@@ -165,6 +191,19 @@ teardown() { rm -rf "$TMP"; }
   grep -Fx 'runtime-root-mode=700' "$MOCK_LOG"
   [ ! -e "$darwin_runtime" ]
   grep -Fx 'minimum-release-age=' "$MOCK_LOG"
+}
+
+@test "builds paired runtimes and runs the native Darwin importer with the Linux path" {
+  mock_host darwin/arm64
+  commit=abcdef0123456789abcdef0123456789abcdef01
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"building native darwin/arm64 importer and linux/amd64 runtime from buildkite-gha source commit $commit with Go 1.26.5"* ]]
+  grep -E '^runtime=/[^ ]+/go/bin/buildkite-gha plugin$' "$MOCK_LOG"
+  linux_runtime="$(sed -n 's/^linux-runtime=//p' "$MOCK_LOG")"
+  [[ "$linux_runtime" == /*/go/bin/linux_amd64/buildkite-gha ]]
+  [ ! -e "$linux_runtime" ]
 }
 
 @test "stops and removes source runtimes when a cross-build fails" {
@@ -252,15 +291,25 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "rejects unsupported platforms before invoking mise" {
-  cat > "$TMP/bin/uname" <<'EOF'
+  for platform in linux/arm64 darwin/amd64; do
+    : > "$MOCK_LOG"
+    if [[ "$platform" == linux/arm64 ]]; then
+      cat > "$TMP/bin/uname" <<'EOF'
 #!/usr/bin/env bash
-[[ "$1" == -s ]] && echo Darwin || echo arm64
+[[ "$1" == -s ]] && echo Linux || echo arm64
 EOF
-  chmod +x "$TMP/bin/uname"
-  run "$REPO/hooks/command"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"only Linux x86-64"* ]]
-  [ ! -s "$MOCK_LOG" ]
+    else
+      cat > "$TMP/bin/uname" <<'EOF'
+#!/usr/bin/env bash
+[[ "$1" == -s ]] && echo Darwin || echo x86_64
+EOF
+    fi
+    chmod +x "$TMP/bin/uname"
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"only Linux amd64 and Darwin arm64 are supported"* ]]
+    [ ! -s "$MOCK_LOG" ]
+  done
 }
 
 @test "installs a pinned verified mise when it is not on PATH and reuses it" {
@@ -270,7 +319,7 @@ EOF
   [[ "$output" == *"installing mise 2026.8.4"* ]]
   grep -F 'curl=--disable --fail --silent --show-error --location --proto =https --proto-redir =https --tlsv1.2 https://github.com/jdx/mise/releases/download/v2026.8.4/mise-v2026.8.4-linux-x64-musl.tar.gz --output ' "$MOCK_LOG"
   grep -F 'sha256sum=' "$MOCK_LOG"
-  [ -x "$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.8.4/mise" ]
+  [ -x "$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.8.4/linux-amd64/mise" ]
   grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
 
   : > "$MOCK_LOG"
@@ -278,6 +327,18 @@ EOF
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   ! grep -q '^curl=' "$MOCK_LOG"
   grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
+}
+
+@test "installs the pinned macOS arm64 mise asset with its platform checksum" {
+  prepare_bootstrap
+  mock_host darwin/arm64
+  export MOCK_MISE_SHA256=5d79a4e5df212017931e1b352715985a8680e7fe409e071aef723261db3a5b89
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -F 'https://github.com/jdx/mise/releases/download/v2026.8.4/mise-v2026.8.4-macos-arm64.tar.gz --output ' "$MOCK_LOG"
+  grep -E '^shasum=-a 256 ' "$MOCK_LOG"
+  ! grep -q '^sha256sum=' "$MOCK_LOG"
+  [ -x "$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.8.4/darwin-arm64/mise" ]
 }
 
 @test "replaces an old mise and stops when bootstrap verification fails" {
