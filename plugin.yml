@@ -6,7 +6,7 @@ requirements:
   - curl
   - git
   - tar
-  - sha256sum
+  - sha256sum (Linux) or shasum (macOS)
   - mktemp
   - cp
 configuration:

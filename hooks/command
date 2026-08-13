@@ -39,27 +39,35 @@ if [[ "$configured_version" != latest ]]; then
   fi
 fi
 
-case "$(uname -s)" in
-  Linux) ;;
-  *) echo "github-actions plugin: unsupported operating system '$(uname -s)'; only Linux x86-64 is supported" >&2; exit 1 ;;
-esac
-case "$(uname -m)" in
-  x86_64|amd64) ;;
-  *) echo "github-actions plugin: unsupported architecture '$(uname -m)'; only Linux x86-64 is supported" >&2; exit 1 ;;
+host_os="$(uname -s)"
+host_arch="$(uname -m)"
+case "$host_os/$host_arch" in
+  Linux/x86_64|Linux/amd64)
+    host_platform=linux/amd64
+    counterpart_platform=darwin/arm64
+    counterpart_environment=BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME
+    ;;
+  Darwin/arm64|Darwin/aarch64)
+    host_platform=darwin/arm64
+    counterpart_platform=linux/amd64
+    counterpart_environment=BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME
+    ;;
+  *)
+    echo "github-actions plugin: unsupported importer platform '$host_os/$host_arch'; only Linux amd64 and Darwin arm64 are supported" >&2
+    exit 1
+    ;;
 esac
 
 echo "~~~ :github: Prepare workflows"
 
-setup_mise
+setup_mise "$host_platform"
 export MISE_YES=1
 if [[ -n "$source_ref" ]]; then
-  echo "github-actions plugin: building Linux amd64 and Darwin arm64 runtimes from buildkite-gha source commit $source_ref with Go 1.26.5" >&2
+  echo "github-actions plugin: building native $host_platform importer and $counterpart_platform runtime from buildkite-gha source commit $source_ref with Go 1.26.5" >&2
   runtime_dir="$(mktemp -d /tmp/buildkite-gha-source.XXXXXXXXXX)"
   trap 'rm -rf -- "$runtime_dir"' EXIT
   source_gopath="$runtime_dir/go"
   source_mod_cache="$MISE_DATA_DIR/github-actions-buildkite-plugin/go-mod-cache"
-  linux_runtime="$source_gopath/bin/buildkite-gha"
-  darwin_runtime="$source_gopath/bin/darwin_arm64/buildkite-gha"
 
   "$MISE_BIN" --no-config exec go@1.26.5 -- \
     env -u GOBIN CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=linux GOARCH=amd64 GOPATH="$source_gopath" GOMODCACHE="$source_mod_cache" \
@@ -68,8 +76,14 @@ if [[ -n "$source_ref" ]]; then
     env -u GOBIN CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=darwin GOARCH=arm64 GOPATH="$source_gopath" GOMODCACHE="$source_mod_cache" \
     go install -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${source_ref}"
 
-  export BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME="$darwin_runtime"
-  "$linux_runtime" plugin
+  native_runtime="$source_gopath/bin/buildkite-gha"
+  if [[ "$host_platform" == linux/amd64 ]]; then
+    counterpart_runtime="$source_gopath/bin/darwin_arm64/buildkite-gha"
+  else
+    counterpart_runtime="$source_gopath/bin/linux_amd64/buildkite-gha"
+  fi
+  export "$counterpart_environment=$counterpart_runtime"
+  "$native_runtime" plugin
 else
   export MISE_GITHUB_GH_CLI_TOKENS=false
   export MISE_MINIMUM_RELEASE_AGE="$minimum_release_age"

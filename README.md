@@ -17,12 +17,14 @@ Add the plugin to a keyed command step in your pipeline configuration. Select th
 steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
+    agents:
+      queue: importer-linux
     plugins:
       - github-actions#latest:
           workflow: .github/workflows/ci.yml
 ```
 
-The selector must be an explicit path to a tracked `.yml` or `.yaml` workflow file. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key`.
+The selector must be an explicit path to a tracked `.yml` or `.yaml` workflow file. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key` and must be scheduled explicitly on either a Linux amd64 or native macOS arm64 agent. The plugin's `runners` mappings schedule generated workflow jobs only; they do not select or change the importer agent.
 
 The Git ref after `github-actions#` selects the plugin code. Use a specific release such as `github-actions#v0.10.0` for an immutable pin, or use `github-actions#latest` to follow the newest stable plugin release that has passed the required validation. This is separate from the `version` property below, which selects the `buildkite-gha` runtime.
 
@@ -40,7 +42,7 @@ Configure runtime selection with the following properties:
 > [!NOTE]
 > Plugin and runtime versions are independent. Pin `version` to keep release-version selection stable, or use `latest` to follow stable runtime releases. Increase `minimum-release-age` (for example, to `24h`) to delay newly published releases. If you update the runtime version, use its matching compatibility guide.
 
-To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build Linux amd64 and Darwin arm64 executables from that exact source, then runs the Linux importer. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
+To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build Linux amd64 and Darwin arm64 executables from that exact source, runs the executable native to the importer agent, and supplies the counterpart to generated jobs. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
 
 The plugin schema requires exactly one of `workflow` or `workflows` and validates its explicit paths, along with the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
 
@@ -108,7 +110,7 @@ The plugin and the `buildkite-gha` runtime work together to run the workflow:
 - The plugin uses an existing compatible `mise`, or installs a pinned verified copy, then asks mise to select and run the configured `buildkite-gha` release or source commit.
 - The hidden `buildkite-gha plugin` command reads the plugin configuration, checks that the workflow is supported, converts its jobs into Buildkite Pipelines command jobs, uploads them, and runs each generated job.
 
-You do not need to install `mise` or `buildkite-gha`. Mise verifies the selected Linux x86-64 importer release when installing it, then caches the installation before running it. When a compiled workflow requires macOS, that exact importer release verifies and stages its paired Darwin arm64 runtime; Linux-only workflows do not acquire it.
+You do not need to install `mise` or `buildkite-gha`. Mise selects, verifies, and caches the release asset matching the importer host: Linux amd64 or Darwin arm64. The importer then verifies and stages the missing same-release counterpart runtime only when a generated job needs it.
 
 Generated jobs that use JavaScript actions also prepare a verified, managed `mise` installation for the supported Node.js versions. Shell-only generated jobs and jobs that use only native adapters or Docker do not install `mise`.
 
@@ -118,9 +120,9 @@ The importer passes the runtime and compiled execution plans to generated jobs u
 
 The importer step needs:
 
-- A Linux x86-64 agent.
+- A Linux amd64 or Darwin arm64 agent, selected by the importer's own `agents` configuration. Generated-job `runners` mappings do not schedule this step.
 - Buildkite agent v3.34.1 or later in the v3 release series. Agent v4 is not supported because the runtime uses the `--reject-secrets` option, which Agent v4 does not provide.
-- Bash, `curl`, `tar`, `sha256sum`, `mktemp`, and `cp`, as listed in [`plugin.yml`](plugin.yml). The download tools are used only when a compatible `mise` is not already on `PATH`.
+- Bash, `curl`, `tar`, `mktemp`, `cp`, and either `sha256sum` on Linux or `shasum` on macOS, as listed in [`plugin.yml`](plugin.yml). The download tools are used only when a compatible `mise` is not already on `PATH`.
 - Git when `BUILDKITE_COMMIT` is not already a full commit SHA.
 - Outbound HTTPS access to public GitHub release and action sources.
 
@@ -139,6 +141,8 @@ Use `runners` to map an exact GitHub `runs-on` label to a Buildkite queue. Confi
 steps:
   - label: ":github: GitHub Actions"
     key: "github-actions"
+    agents:
+      queue: importer-macos-arm64
     plugins:
       - github-actions#latest:
           workflow: .github/workflows/ci.yml
@@ -150,7 +154,7 @@ steps:
               queue: macos-sonoma-arm64
 ```
 
-`runs-on` is matched after static expressions and matrices are resolved. An explicit `image` applies only to the matching Linux label, must be an immutable `@sha256:` reference, and replaces the label's hosted-toolchains default. macOS mappings select a native queue and cannot specify an image. Duplicate labels, unsupported labels, malformed queues or images, and conflicting multi-label targets fail admission. Unmapped supported Linux labels retain default Buildkite agent targeting without an image; unmapped macOS labels fail rather than falling back to a Linux queue.
+The top-level `agents.queue` above schedules the importer on macOS arm64; it is independent of the queues under `runners`. `runs-on` is matched after static expressions and matrices are resolved. An explicit `image` applies only to the matching Linux label, must be an immutable `@sha256:` reference, and replaces the label's hosted-toolchains default. macOS mappings select a native queue and cannot specify an image. Duplicate labels, unsupported labels, malformed queues or images, and conflicting multi-label targets fail admission. Unmapped supported Linux labels retain default Buildkite agent targeting without an image; unmapped macOS labels fail rather than falling back to a Linux queue.
 
 > [!WARNING]
 > Generated jobs may execute untrusted workflow or action code. The selected queue must provide whole-job isolation, no ambient protected credentials, and a clean machine for each untrusted job. Persistent self-hosted agents can expose host resources and state left by earlier jobs.
