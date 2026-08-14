@@ -87,6 +87,7 @@ if [[ -n "$source_ref" ]]; then
 else
   export MISE_GITHUB_GH_CLI_TOKENS=false
   export MISE_MINIMUM_RELEASE_AGE="$minimum_release_age"
+  export MISE_QUIET=1
   exec "$MISE_BIN" --no-config exec \
     "github:buildkite/buildkite-gha@${configured_version}" \
     -- buildkite-gha plugin

@@ -51,12 +51,20 @@ printf 'group=%s\n' "\${BUILDKITE_GROUP_LABEL:-}" >> "\${MOCK_LOG:?}"
 printf 'minimum-release-age=%s\n' "\${MISE_MINIMUM_RELEASE_AGE:-}" >> "\${MOCK_LOG:?}"
 printf 'github-cli-tokens=%s\n' "\${MISE_GITHUB_GH_CLI_TOKENS:-}" >> "\${MOCK_LOG:?}"
 printf 'yes=%s\n' "\${MISE_YES:-}" >> "\${MOCK_LOG:?}"
+printf 'quiet=%s\n' "\${MISE_QUIET:-}" >> "\${MOCK_LOG:?}"
 printf 'cwd=%s\n' "\$PWD" >> "\${MOCK_LOG:?}"
 printf 'prereleases=%s\n' "\${MISE_PRERELEASES:-}" >> "\${MOCK_LOG:?}"
 printf 'url-replacements=%s\n' "\${MISE_URL_REPLACEMENTS:-}" >> "\${MOCK_LOG:?}"
 printf 'installs-dir=%s\n' "\${MISE_INSTALLS_DIR:-}" >> "\${MOCK_LOG:?}"
 printf 'credential-command=%s\n' "\${MISE_GITHUB_CREDENTIAL_COMMAND:-}" >> "\${MOCK_LOG:?}"
 if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${4:-}" == -- && "\${5:-}" == buildkite-gha && "\${6:-}" == plugin ]]; then
+  if [[ "\${MISE_QUIET:-}" != 1 ]]; then
+    echo 'mise github:buildkite/buildkite-gha installing'
+  fi
+  if [[ "\${MOCK_MISE_ACQUISITION_FAILURE:-}" == 1 ]]; then
+    echo 'mise ERROR failed to download buildkite-gha release' >&2
+    exit 42
+  fi
   if [[ -z "\${BUILDKITE_PLUGIN_CONFIGURATION:-}" ]]; then
     echo 'buildkite-gha: plugin: BUILDKITE_PLUGIN_CONFIGURATION is required' >&2
     exit 2
@@ -150,7 +158,17 @@ teardown() { rm -rf "$TMP"; }
   grep -Fx 'minimum-release-age=0s' "$MOCK_LOG"
   grep -Fx 'github-cli-tokens=false' "$MOCK_LOG"
   grep -Fx 'yes=1' "$MOCK_LOG"
+  grep -Fx 'quiet=1' "$MOCK_LOG"
+  [[ "$output" != *"mise github:buildkite/buildkite-gha installing"* ]]
   grep -Fx "cwd=$PWD" "$MOCK_LOG"
+}
+
+@test "keeps mise acquisition failures visible in quiet mode" {
+  export MOCK_MISE_ACQUISITION_FAILURE=1
+  run "$REPO/hooks/command"
+  [ "$status" -eq 42 ]
+  [[ "$output" == *"mise ERROR failed to download buildkite-gha release"* ]]
+  grep -Fx 'quiet=1' "$MOCK_LOG"
 }
 
 @test "passes exact versions and a configured minimum release age to mise" {
