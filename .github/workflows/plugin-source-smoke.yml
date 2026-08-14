@@ -14,5 +14,8 @@ jobs:
         run: |
           test "${GITHUB_ACTIONS:-}" = true
           test "${RUNNER_OS:-}" = Linux
+          test "$(id -un)" = runner
+          test "${HOME:-}" = /home/runner
+          test "${TMPDIR:-}" = /tmp/buildkite-gha-runner
           test -n "${GITHUB_SHA:-}"
           test -n "${GITHUB_REPOSITORY:-}"

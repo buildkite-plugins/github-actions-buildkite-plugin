@@ -44,7 +44,8 @@ steps:
           plugins:
             - github-actions#$$commit:
                 workflow: .buildkite/fixtures/plugin-release-linux.yml
-                version: 0.11.0
+                version: 0.13.7
+                experimental-runner-user: true
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
@@ -64,7 +65,7 @@ steps:
             - github-actions#$$commit:
                 workflows:
                   - .buildkite/fixtures/plugin-release-mixed.yml
-                version: 0.11.0
+                version: 0.13.7
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
@@ -83,7 +84,7 @@ steps:
             - github-actions#$$commit:
                 workflows:
                   - .buildkite/fixtures/plugin-release-macos.yml
-                version: 0.11.0
+                version: 0.13.7
                 runners:
                   - runs-on: macos-14
                     queue: macos
@@ -99,7 +100,8 @@ steps:
           plugins:
             - github-actions#$$commit:
                 workflow: .github/workflows/plugin-source-smoke.yml
-                source-ref: 24b5026bba9402a20b96004eb4f5d60a5028cc46
+                source-ref: ff74a02d8493a7c55366e3be4cd8b27d95d99646
+                experimental-runner-user: true
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
@@ -116,7 +118,7 @@ steps:
             - github-actions#$$commit:
                 workflows:
                   - .buildkite/fixtures/plugin-source-mixed.yml
-                source-ref: 24b5026bba9402a20b96004eb4f5d60a5028cc46
+                source-ref: ff74a02d8493a7c55366e3be4cd8b27d95d99646
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
@@ -135,7 +137,7 @@ steps:
             - github-actions#$$commit:
                 workflows:
                   - .buildkite/fixtures/plugin-source-macos.yml
-                source-ref: 24b5026bba9402a20b96004eb4f5d60a5028cc46
+                source-ref: ff74a02d8493a7c55366e3be4cd8b27d95d99646
                 runners:
                   - runs-on: macos-14
                     queue: macos

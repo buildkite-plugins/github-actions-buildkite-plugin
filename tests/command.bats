@@ -162,6 +162,15 @@ teardown() { rm -rf "$TMP"; }
   grep -Fx 'minimum-release-age=24h' "$MOCK_LOG"
 }
 
+@test "passes experimental-runner-user unchanged to a supported release" {
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.13.7
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/ci.yml","experimental-runner-user":true}'
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@0.13.7 -- buildkite-gha plugin' "$MOCK_LOG"
+  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
+}
+
 @test "passes an explicit workflow path array to buildkite-gha unchanged" {
   export BUILDKITE_PLUGIN_CONFIGURATION='{"workflows":[".github/workflows/ci.yml",".github/workflows/release.yml"],"runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
   run "$REPO/hooks/command"
@@ -176,9 +185,10 @@ teardown() { rm -rf "$TMP"; }
   grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
 }
 
-@test "builds paired runtimes and runs the native Linux importer with the Darwin path" {
+@test "passes experimental-runner-user to the native source importer" {
   commit=abcdef0123456789abcdef0123456789abcdef01
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/ci.yml","experimental-runner-user":true}'
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [[ "$output" == *"building native linux/amd64 importer and darwin/arm64 runtime from buildkite-gha source commit $commit with Go 1.26.5"* ]]
@@ -278,6 +288,19 @@ teardown() { rm -rf "$TMP"; }
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
+}
+
+@test "preserves buildkite-gha fail-closed configuration validation" {
+  export MOCK_IMPORTER_EXIT=2
+  for configuration in \
+    '{"workflow":"ci.yml","unknown":true}' \
+    '{"workflow":"ci.yml","experimental-runner-user":"true"}'; do
+    : > "$MOCK_LOG"
+    export BUILDKITE_PLUGIN_CONFIGURATION="$configuration"
+    run "$REPO/hooks/command"
+    [ "$status" -eq 2 ] || { echo "$output"; false; }
+    grep -Fx "configuration=$configuration" "$MOCK_LOG"
+  done
 }
 
 @test "ignores legacy aliases and propagates buildkite-gha failures" {
