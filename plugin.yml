@@ -43,4 +43,8 @@ configuration:
       minLength: 1
       default: 0s
       description: Minimum age passed to mise when selecting the latest buildkite-gha release.
+    experimental-runner-user:
+      type: boolean
+      default: false
+      description: Run generated Linux jobs as a dedicated runner user. Requires buildkite-gha 0.13.7 or newer.
   additionalProperties: true

@@ -13,6 +13,9 @@ jobs:
         run: |
           test "${GITHUB_ACTIONS:-}" = true
           test "${RUNNER_OS:-}" = Linux
+          test "$(id -un)" = runner
+          test "${HOME:-}" = /home/runner
+          test "${TMPDIR:-}" = /tmp/buildkite-gha-runner
           test -d /opt/hostedtoolcache
 
   release-linux-override:
@@ -24,5 +27,8 @@ jobs:
         run: |
           test "${GITHUB_ACTIONS:-}" = true
           test "${RUNNER_OS:-}" = Linux
+          test "$(id -un)" = runner
+          test "${HOME:-}" = /home/runner
+          test "${TMPDIR:-}" = /tmp/buildkite-gha-runner
           test -d /opt/hostedtoolcache
           grep -Fx 'VERSION_ID="24.04"' /etc/os-release

@@ -37,6 +37,7 @@ Configure runtime selection with the following properties:
 | `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.9.0` onward. |
 | `source-ref` | No | — | Full `buildkite-gha` source commit to build for development testing; mutually exclusive with `version`. |
 | `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
+| `experimental-runner-user` | No | `false` | Run generated Linux jobs as a dedicated `runner` user; requires `buildkite-gha` 0.13.7 or newer. |
 | `runners` | No | — | Exact `runs-on` mappings to Buildkite queues and optional immutable Linux image overrides. |
 
 > [!NOTE]
@@ -44,7 +45,7 @@ Configure runtime selection with the following properties:
 
 To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build Linux amd64 and Darwin arm64 executables from that exact source, runs the executable native to the importer agent, and supplies the counterpart to generated jobs. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
 
-The plugin schema requires exactly one of `workflow` or `workflows` and validates its explicit paths, along with the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
+The plugin schema requires exactly one of `workflow` or `workflows` and validates its explicit paths, the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`, and the boolean `experimental-runner-user` field. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
 
 ### Select workflows
 
@@ -69,6 +70,28 @@ plugins:
 Configure exactly one selector form. Each value must identify one regular, tracked `.yml` or `.yaml` file inside the repository. Empty values and arrays, directories, globs, and wildcard selectors are not accepted. Selected paths are canonicalized, sorted, and deduplicated before upload.
 
 Matched workflows are compiled and uploaded atomically. Workflow groups use the workflow's `name`, falling back to its repository path. Reusable workflows whose only trigger is `workflow_call` do not create groups, but remain available to matched callers. The upload fails if a selector matches no tracked files, the selection contains no directly runnable workflows, or a workflow's trigger cannot be represented safely.
+
+### Run Linux jobs as a runner user
+
+Set `experimental-runner-user: true` to run generated Linux job processes as a dedicated `runner` user:
+
+```yaml
+steps:
+  - label: ":github: GitHub Actions"
+    key: "github-actions"
+    agents:
+      queue: hosted
+    plugins:
+      - github-actions#latest:
+          workflow: .github/workflows/ci.yml
+          version: "0.13.7"
+          experimental-runner-user: true
+          runners:
+            - runs-on: ubuntu-latest
+              queue: hosted
+```
+
+This experimental mode requires `buildkite-gha` 0.13.7 or newer. The generated Linux job must initially run as root so the runtime can provision the user; that user retains passwordless `sudo`, so this is not a security boundary. The option is off by default and does not change macOS jobs.
 
 The supported top-level triggers map to group `if` expressions as follows:
 
