@@ -38,6 +38,7 @@ Configure runtime selection with the following properties:
 | `source-ref` | No | — | Full `buildkite-gha` source commit to build for development testing; mutually exclusive with `version`. |
 | `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
 | `experimental-runner-user` | No | `false` | Run generated Linux jobs as a dedicated `runner` user; requires `buildkite-gha` 0.13.7 or newer. |
+| `oidc` | No | — | Buildkite OIDC token options for jobs that request GitHub-compatible OIDC. Requires a `buildkite-gha` release with OIDC support. |
 | `runners` | No | — | Exact `runs-on` mappings to Buildkite queues and optional immutable Linux image overrides. |
 
 > [!NOTE]
@@ -45,7 +46,7 @@ Configure runtime selection with the following properties:
 
 To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build Linux amd64 and Darwin arm64 executables from that exact source, runs the executable native to the importer agent, and supplies the counterpart to generated jobs. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
 
-The plugin schema requires exactly one of `workflow` or `workflows` and validates its explicit paths, the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`, and the boolean `experimental-runner-user` field. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
+The plugin schema requires exactly one of `workflow` or `workflows` and validates its explicit paths, the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`, the boolean `experimental-runner-user` field, and the admission-level shape of `oidc`. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
 
 ### Select workflows
 
@@ -92,6 +93,24 @@ steps:
 ```
 
 This experimental mode requires `buildkite-gha` 0.13.7 or newer. The generated Linux job must initially run as root so the runtime can provision the user; that user retains passwordless `sudo`, so this is not a security boundary. The option is off by default and does not change macOS jobs.
+
+### Configure OIDC tokens
+
+Use the `oidc` block to configure pipeline-owner options for GitHub-compatible OIDC tokens:
+
+```yaml
+plugins:
+  - github-actions#latest:
+      workflow: .github/workflows/deploy.yml
+      oidc:
+        claims: [organization_id]
+        aws-session-tags: [organization_slug, pipeline_id]
+        subject-claim: pipeline_id
+```
+
+This configuration requires a `buildkite-gha` release with OIDC support. Releases without that support reject the `oidc` block during strict behavioral configuration validation, so do not enable it until a supporting runtime release is selected.
+
+The block only affects jobs that already declare `permissions: id-token: write`; it does not grant OIDC access to other jobs or change the workflow itself. `claims` adds optional claims to tokens, `aws-session-tags` duplicates claims into AWS session-tag format, and `subject-claim` selects one immutable claim as the token subject. The accepted values match [`buildkite-agent oidc request-token`](https://buildkite.com/docs/agent/cli/reference/oidc) and are validated by `buildkite-gha`.
 
 The supported top-level triggers map to group `if` expressions as follows:
 
@@ -242,7 +261,7 @@ The public preview supports an evolving subset of GitHub Actions. Common support
 
 Important limitations include:
 
-- General workflow secrets, ambient `GITHUB_TOKEN`, private actions, private reusable workflows, alternate-repository or alternate-ref checkout, and GitHub-compatible OIDC are not available.
+- General workflow secrets, ambient `GITHUB_TOKEN`, private actions, private reusable workflows, and alternate-repository or alternate-ref checkout are not available.
 - Windows and Linux arm64 jobs are not supported.
 - macOS does not provide GitHub-hosted image or Xcode inventory parity. Docker actions, job containers, and service containers are not supported on macOS.
 - Job and service containers are not available through the production plugin path.
