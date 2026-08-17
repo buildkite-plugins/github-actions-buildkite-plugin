@@ -203,6 +203,13 @@ teardown() { rm -rf "$TMP"; }
   grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
 }
 
+@test "passes OIDC configuration to buildkite-gha unchanged" {
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/deploy.yml","oidc":{"claims":["organization_id"],"aws-session-tags":["organization_slug","pipeline_id"],"subject-claim":"pipeline_id"}}'
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
+}
+
 @test "passes experimental-runner-user to the native source importer" {
   commit=abcdef0123456789abcdef0123456789abcdef01
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"

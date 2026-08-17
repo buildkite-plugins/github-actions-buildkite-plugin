@@ -47,4 +47,23 @@ configuration:
       type: boolean
       default: false
       description: Run generated Linux jobs as a dedicated runner user. Requires buildkite-gha 0.13.7 or newer.
+    oidc:
+      type: object
+      properties:
+        claims:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          description: Optional claim names to include in Buildkite OIDC tokens.
+        aws-session-tags:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          description: Claim names to duplicate into AWS session-tag format.
+        subject-claim:
+          type: string
+          minLength: 1
+          description: Immutable claim name to use as the token subject.
   additionalProperties: true
