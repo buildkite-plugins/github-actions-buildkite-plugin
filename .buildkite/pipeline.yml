@@ -88,6 +88,38 @@ steps:
                 runners:
                   - runs-on: macos-14
                     queue: macos
+        - label: ":github: Live native macOS importer release smoke"
+          key: "live-native-macos-importer-release-smoke"
+          agents:
+            queue: "macos"
+          timeout_in_minutes: 20
+          retry:
+            automatic: false
+          plugins:
+            - github-actions#v0.11.0:
+                workflows:
+                  - .buildkite/fixtures/plugin-native-importer-release-macos.yml
+                version: 0.13.0
+                runners:
+                  - runs-on: macos-14
+                    queue: macos
+        - label: ":github: Live native macOS mixed importer release smoke"
+          key: "live-native-macos-mixed-importer-release-smoke"
+          agents:
+            queue: "macos"
+          timeout_in_minutes: 20
+          retry:
+            automatic: false
+          plugins:
+            - github-actions#v0.11.0:
+                workflows:
+                  - .buildkite/fixtures/plugin-native-importer-release-mixed.yml
+                version: 0.13.0
+                runners:
+                  - runs-on: ubuntu-latest
+                    queue: hosted
+                  - runs-on: macos-14
+                    queue: macos
         - label: ":github: Live Linux source-ref smoke"
           key: "live-linux-source-ref-smoke-importer"
           agents:
