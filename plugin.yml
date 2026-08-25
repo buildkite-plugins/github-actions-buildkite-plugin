@@ -20,7 +20,7 @@ configuration:
       type: string
       minLength: 1
       pattern: "^[^*?\\[\\]{}]+\\.ya?ml$"
-      description: One explicit tracked .yml or .yaml workflow path.
+      description: One explicit .yml or .yaml workflow path. Missing or untracked paths are skipped.
     workflows:
       type: array
       minItems: 1
@@ -28,7 +28,7 @@ configuration:
         type: string
         minLength: 1
         pattern: "^[^*?\\[\\]{}]+\\.ya?ml$"
-      description: Explicit tracked .yml or .yaml workflow paths.
+      description: Explicit .yml or .yaml workflow paths. Missing or untracked paths are skipped.
     version:
       type: string
       default: latest
