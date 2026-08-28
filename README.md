@@ -11,7 +11,18 @@ During the preview, start with a simple workflow in a public `github.com` reposi
 
 ## Add workflows to a pipeline
 
-Add the plugin to a keyed command step in your pipeline configuration. Select the workflow you want to import explicitly:
+For builds created by a GitHub Actions Pipeline Trigger, omit the `workflow` and `workflows` selectors. The Buildkite app and `buildkite-gha` select the workflow associated with the trigger. The minimal configuration is:
+
+```yaml
+steps:
+  - label: ":github:"
+    plugins:
+      - github-actions#latest: {}
+```
+
+This selector-free form is only for builds created by a GitHub Actions Pipeline Trigger and requires compatible Buildkite app, `buildkite-gha`, and plugin releases. Supported runtime and behavioral options may still be configured; the plugin forwards them without inferring trigger context. In an ordinary build, `buildkite-gha` rejects a configuration without a selector. Select the workflow explicitly instead.
+
+For explicit selection, add the plugin to a keyed command step in your pipeline configuration:
 
 ```yaml
 steps:
@@ -24,7 +35,7 @@ steps:
           workflow: .github/workflows/ci.yml
 ```
 
-The selector must be an explicit path to a `.yml` or `.yaml` workflow file. When present, the file must be regular, tracked, and inside the repository. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. The importer step must have a `key` and must be scheduled explicitly on either a Linux amd64 or native macOS arm64 agent. The plugin's `runners` mappings schedule generated workflow jobs only; they do not select or change the importer agent.
+An explicit selector must be a path to a `.yml` or `.yaml` workflow file. When present, the file must be regular, tracked, and inside the repository. When this importer step runs, the plugin uploads one dynamic pipeline containing a Buildkite group for each directly runnable workflow. Each workflow job and static matrix entry becomes a Buildkite Pipelines job that depends on the importer step. An explicitly configured importer step must have a `key` and must be scheduled explicitly on either a Linux amd64 or native macOS arm64 agent. The plugin's `runners` mappings schedule generated workflow jobs only; they do not select or change the importer agent.
 
 The Git ref after `github-actions#` selects the plugin code. Use a specific release such as `github-actions#v0.13.0` for an immutable pin, or use `github-actions#latest` to follow the newest stable plugin release that has passed the required validation. This is separate from the `version` property below, which selects the `buildkite-gha` runtime.
 
@@ -32,8 +43,8 @@ Configure runtime selection with the following properties:
 
 | Option | Required | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | One of `workflow` or `workflows` | — | One explicit `.yml` or `.yaml` workflow path. Missing or untracked paths are skipped. |
-| `workflows` | One of `workflow` or `workflows` | — | Non-empty array of explicit `.yml` or `.yaml` workflow paths. Missing or untracked paths are skipped. |
+| `workflow` | Explicit selection only: one of `workflow` or `workflows` | — | One explicit `.yml` or `.yaml` workflow path. Missing or untracked paths are skipped. |
+| `workflows` | Explicit selection only: one of `workflow` or `workflows` | — | Non-empty array of explicit `.yml` or `.yaml` workflow paths. Missing or untracked paths are skipped. |
 | `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.9.0` onward. |
 | `source-ref` | No | — | Full `buildkite-gha` source commit to build for development testing; mutually exclusive with `version`. |
 | `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
@@ -46,7 +57,7 @@ Configure runtime selection with the following properties:
 
 To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build Linux amd64 and Darwin arm64 executables from that exact source, runs the executable native to the importer agent, and supplies the counterpart to generated jobs. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
 
-The plugin schema requires exactly one of `workflow` or `workflows` and validates its explicit paths, the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`, the boolean `experimental-runner-user` field, and the admission-level shape of `oidc`. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
+The plugin schema accepts either a selector-free configuration for GitHub Actions Pipeline Trigger selection, including supported runtime or behavioral options, or exactly one of `workflow` and `workflows`. It validates explicit paths, the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`, the boolean `experimental-runner-user` field, and the admission-level shape of `oidc`. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
 
 ### Select workflows
 
@@ -68,7 +79,7 @@ plugins:
         - .github/workflows/release.yml
 ```
 
-Configure exactly one selector form. Each present value must identify one regular, tracked `.yml` or `.yaml` file inside the repository. Empty values and arrays, directories, globs, symlinks, files outside the repository, and wildcard selectors are not accepted. Selected paths are canonicalized, sorted, and deduplicated before upload.
+For explicit selection, configure exactly one selector form. Each present value must identify one regular, tracked `.yml` or `.yaml` file inside the repository. Empty values and arrays, directories, globs, symlinks, files outside the repository, and wildcard selectors are not accepted. Selected paths are canonicalized, sorted, and deduplicated before upload.
 
 Missing or untracked configured paths produce a warning and are skipped. If all configured paths are missing or untracked, the importer succeeds without uploading a pipeline. Remaining workflows are compiled and uploaded in one pipeline transaction. Workflow groups use the workflow's `name`, falling back to its repository path; a supported non-empty `run-name` is appended to the group label. Reusable workflows whose only trigger is `workflow_call` do not create groups, but remain available to matched callers. Selecting only reusable workflows is an error. A safely reportable compilation or trigger-translation error in one workflow instead becomes a failing top-level step, allowing other selected workflows to remain in the uploaded pipeline.
 

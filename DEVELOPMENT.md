@@ -44,6 +44,8 @@ Plugin releases are immutable Git tags with asset-free GitHub Releases. Before y
 1. Update every `github-actions#vX.Y.Z` reference in `README.md` to the plugin version being released; the plugin linter accepts this prospective version on `main` and requires it on the tag build.
 1. Wait for the Buildkite Pipelines build for `main` to pass.
 
+The Buildkite app contract changes required for server workflow selection without an explicit selector (#33143 and #33235) are deployed. Before releasing this plugin or promoting it to `latest`, publish a compatible `buildkite-gha` release. Do not publish or promote the wrapper first; older runtimes reject selector-free configurations, and the server contract supplies the trusted trigger context that makes them valid.
+
 When changing runtime integration, update `plugin.yml`, `hooks/command`, `.github/workflows/plugin-smoke.yml`, `tests/command.bats`, and the README together. Make sure the examples and versioned compatibility and security links describe the recommended runtime release.
 
 From a clean, up-to-date local `main`, create the immutable lightweight tag:
