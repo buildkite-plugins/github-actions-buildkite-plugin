@@ -11,18 +11,7 @@ During the preview, start with a simple workflow in a public `github.com` reposi
 
 ## Add workflows to a pipeline
 
-For builds created by a GitHub Actions Pipeline Trigger, omit the `workflow` and `workflows` selectors. The Buildkite app and `buildkite-gha` select the workflow associated with the trigger. The minimal configuration is:
-
-```yaml
-steps:
-  - label: ":github:"
-    plugins:
-      - github-actions#latest: {}
-```
-
-This selector-free form is only for builds created by a GitHub Actions Pipeline Trigger and requires compatible Buildkite app, `buildkite-gha`, and plugin releases. Supported runtime and behavioral options may still be configured; the plugin forwards them without inferring trigger context. In an ordinary build, `buildkite-gha` rejects a configuration without a selector. Select the workflow explicitly instead.
-
-For explicit selection, add the plugin to a keyed command step in your pipeline configuration:
+For most users, add the plugin to a keyed command step in your pipeline configuration. Select the workflow you want to import explicitly:
 
 ```yaml
 steps:
@@ -57,7 +46,7 @@ Configure runtime selection with the following properties:
 
 To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build Linux amd64 and Darwin arm64 executables from that exact source, runs the executable native to the importer agent, and supplies the counterpart to generated jobs. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
 
-The plugin schema accepts either a selector-free configuration for GitHub Actions Pipeline Trigger selection, including supported runtime or behavioral options, or exactly one of `workflow` and `workflows`. It validates explicit paths, the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`, the boolean `experimental-runner-user` field, and the admission-level shape of `oidc`. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
+The plugin schema validates explicit selector paths when present, the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`, the boolean `experimental-runner-user` field, and the admission-level shape of `oidc`. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
 
 ### Select workflows
 
@@ -255,6 +244,20 @@ Buildkite Pipelines controls when builds run. Configure branch, tag, schedule, a
 For manual and scheduled builds, the plugin finds the exact commit from the checked-out repository when `BUILDKITE_COMMIT` does not already contain a full commit SHA.
 
 Pull request builds receive `pull_request` context. Branch and tag builds receive `push` context. Verified linked merge queue and release webhooks supply `merge_group` and `release` context. Buildkite scheduled builds select workflows with a `schedule` trigger, while manual UI or API builds select workflows with `workflow_dispatch`; dispatch inputs are not available.
+
+### Run from a GitHub Actions Pipeline Trigger
+
+> [!NOTE]
+> GitHub Actions Pipeline Triggers are in private preview and feature flagged off for most organizations.
+
+When this trigger type is enabled, the Buildkite app and `buildkite-gha` select the workflow associated with the trigger. The minimal pipeline configuration is:
+
+```yaml
+steps:
+  - plugin: github-actions
+```
+
+This selector-free form requires compatible Buildkite app, `buildkite-gha`, and plugin releases. Supported runtime and behavioral options may still be configured using the standard `plugins` form while omitting both `workflow` and `workflows`; the plugin forwards them without inferring trigger context. In an ordinary build, `buildkite-gha` rejects a configuration without a selector.
 
 ## Configure checkout and credentials
 
