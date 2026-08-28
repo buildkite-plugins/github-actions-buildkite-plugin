@@ -257,7 +257,7 @@ steps:
   - plugin: github-actions
 ```
 
-This selector-free form requires compatible Buildkite app, `buildkite-gha`, and plugin releases. Supported runtime and behavioral options may still be configured using the standard `plugins` form while omitting both `workflow` and `workflows`; the plugin forwards them without inferring trigger context. In an ordinary build, `buildkite-gha` rejects a configuration without a selector.
+Supported runtime and behavioral options may still be configured using the standard `plugins` form while omitting both `workflow` and `workflows`; the plugin forwards them without inferring trigger context.
 
 ## Configure checkout and credentials
 
