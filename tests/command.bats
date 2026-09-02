@@ -69,6 +69,9 @@ if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${4:-}" == -- && "\${5:
     echo 'buildkite-gha: plugin: BUILDKITE_PLUGIN_CONFIGURATION is required' >&2
     exit 2
   fi
+  if [[ -n "\${MOCK_IMPORTER_ERROR:-}" ]]; then
+    echo "\$MOCK_IMPORTER_ERROR" >&2
+  fi
   exit "\${MOCK_IMPORTER_EXIT:-0}"
 fi
 if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${3:-}" == go@1.26.5 && "\${4:-}" == -- && "\${5:-}" == env && "\${6:-}" == -u && "\${7:-}" == GOBIN && "\${8:-}" == CGO_ENABLED=0 && "\${9:-}" == GOTOOLCHAIN=local ]]; then
@@ -161,6 +164,36 @@ teardown() { rm -rf "$TMP"; }
   grep -Fx 'quiet=1' "$MOCK_LOG"
   [[ "$output" != *"mise github:buildkite/buildkite-gha installing"* ]]
   grep -Fx "cwd=$PWD" "$MOCK_LOG"
+}
+
+@test "passes an empty configuration object to buildkite-gha unchanged" {
+  export BUILDKITE_PLUGIN_CONFIGURATION='{}'
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
+  grep -Fx 'configuration={}' "$MOCK_LOG"
+}
+
+@test "passes selector-free runtime and behavioral options to buildkite-gha unchanged" {
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.35.1
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE=24h
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"version":"v0.35.1","minimum-release-age":"24h","experimental-runner-user":false,"runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}],"oidc":{"claims":["organization_id"],"subject-claim":"pipeline_id"}}'
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@0.35.1 -- buildkite-gha plugin' "$MOCK_LOG"
+  grep -Fx 'minimum-release-age=24h' "$MOCK_LOG"
+  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
+}
+
+@test "leaves ordinary selector-free failure to buildkite-gha" {
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.35.1
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"version":"v0.35.1","runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
+  export MOCK_IMPORTER_EXIT=2
+  export MOCK_IMPORTER_ERROR='buildkite-gha: plugin: workflow or workflows is required outside a GitHub Actions Pipeline Trigger build'
+  run "$REPO/hooks/command"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"$MOCK_IMPORTER_ERROR"* ]]
+  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
 }
 
 @test "keeps mise acquisition failures visible in quiet mode" {

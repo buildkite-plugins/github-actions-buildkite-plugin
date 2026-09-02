@@ -10,7 +10,14 @@ requirements:
   - mktemp
   - cp
 configuration:
+  type: object
   oneOf:
+    - not:
+        anyOf:
+          - required:
+              - workflow
+          - required:
+              - workflows
     - required:
         - workflow
     - required:
