@@ -91,7 +91,7 @@ echo "~~~ :github: Prepare workflows"
 setup_mise "$host_platform"
 export MISE_YES=1
 if [[ -n "$source_ref" ]]; then
-  echo "github-actions plugin: building native $host_platform importer and $counterpart_platform runtime from buildkite-gha source commit $source_ref with Go 1.26.5" >&2
+  echo "github-actions plugin: building native $host_platform importer and $counterpart_platform and windows/amd64 runtimes from buildkite-gha source commit $source_ref with Go 1.26.5" >&2
   runtime_dir="$(mktemp -d /tmp/buildkite-gha-source.XXXXXXXXXX)"
   trap 'rm -rf -- "$runtime_dir"' EXIT
   source_gopath="$runtime_dir/go"
@@ -103,6 +103,9 @@ if [[ -n "$source_ref" ]]; then
   "$MISE_BIN" --no-config exec go@1.26.5 -- \
     env -u GOBIN CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=darwin GOARCH=arm64 GOPATH="$source_gopath" GOMODCACHE="$source_mod_cache" \
     go install -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${source_ref}"
+  "$MISE_BIN" --no-config exec go@1.26.5 -- \
+    env -u GOBIN CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=windows GOARCH=amd64 GOPATH="$source_gopath" GOMODCACHE="$source_mod_cache" \
+    go install -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${source_ref}"
 
   native_runtime="$source_gopath/bin/buildkite-gha"
   if [[ "$host_platform" == linux/amd64 ]]; then
@@ -111,6 +114,7 @@ if [[ -n "$source_ref" ]]; then
     counterpart_runtime="$source_gopath/bin/linux_amd64/buildkite-gha"
   fi
   export "$counterpart_environment=$counterpart_runtime"
+  export BUILDKITE_GHA_PLUGIN_DEV_WINDOWS_RUNTIME="$source_gopath/bin/windows_amd64/buildkite-gha.exe"
   "$native_runtime" plugin
 else
   export MISE_GITHUB_GH_CLI_TOKENS=false
