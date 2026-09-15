@@ -44,7 +44,7 @@ steps:
           plugins:
             - github-actions#$$commit:
                 workflow: .buildkite/fixtures/plugin-release-linux.yml
-                version: 0.17.0
+                version: 0.46.2
                 experimental-runner-user: true
                 runners:
                   - runs-on: ubuntu-latest
@@ -65,7 +65,8 @@ steps:
             - github-actions#$$commit:
                 workflows:
                   - .buildkite/fixtures/plugin-release-mixed.yml
-                version: 0.17.0
+                version: 0.46.2
+                experimental-runner-user: false
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
@@ -84,7 +85,7 @@ steps:
             - github-actions#$$commit:
                 workflows:
                   - .buildkite/fixtures/plugin-release-macos.yml
-                version: 0.17.0
+                version: 0.46.2
                 runners:
                   - runs-on: macos-14
                     queue: macos
@@ -99,7 +100,7 @@ steps:
             - github-actions#v0.11.0:
                 workflows:
                   - .buildkite/fixtures/plugin-native-importer-release-macos.yml
-                version: 0.13.0
+                version: 0.46.2
                 runners:
                   - runs-on: macos-14
                     queue: macos
@@ -114,7 +115,8 @@ steps:
             - github-actions#v0.11.0:
                 workflows:
                   - .buildkite/fixtures/plugin-native-importer-release-mixed.yml
-                version: 0.13.0
+                version: 0.46.2
+                experimental-runner-user: false
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
@@ -132,7 +134,7 @@ steps:
           plugins:
             - github-actions#$$commit:
                 workflow: .github/workflows/plugin-source-smoke.yml
-                source-ref: ff74a02d8493a7c55366e3be4cd8b27d95d99646
+                source-ref: e492fcadf9b93148e5797e8be89d11ad64a220be
                 experimental-runner-user: true
                 runners:
                   - runs-on: ubuntu-latest
@@ -150,7 +152,8 @@ steps:
             - github-actions#$$commit:
                 workflows:
                   - .buildkite/fixtures/plugin-source-mixed.yml
-                source-ref: ff74a02d8493a7c55366e3be4cd8b27d95d99646
+                source-ref: e492fcadf9b93148e5797e8be89d11ad64a220be
+                experimental-runner-user: false
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
@@ -169,7 +172,7 @@ steps:
             - github-actions#$$commit:
                 workflows:
                   - .buildkite/fixtures/plugin-source-macos.yml
-                source-ref: ff74a02d8493a7c55366e3be4cd8b27d95d99646
+                source-ref: e492fcadf9b93148e5797e8be89d11ad64a220be
                 runners:
                   - runs-on: macos-14
                     queue: macos

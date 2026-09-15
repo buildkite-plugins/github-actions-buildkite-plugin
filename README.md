@@ -165,7 +165,7 @@ The importer passes the runtime and compiled execution plans to generated jobs u
 The importer step needs:
 
 - A Linux amd64 or Darwin arm64 agent, selected by the importer's own `agents` configuration. Generated-job `runners` mappings do not schedule this step.
-- Buildkite agent v3.129 or later.
+- Buildkite Agent v4 with `buildkite-gha` v0.46.2 or later to preserve default secret rejection during pipeline upload. Older runtimes pass `--reject-secrets`, which Agent v4 removed; use Agent v3.129 or later in the v3 series with those runtimes. Do not enable `BUILDKITE_AGENT_PIPELINE_UPLOAD_ALLOW_SECRETS` on Agent v4.
 - Bash, `curl`, `tar`, `mktemp`, `cp`, and either `sha256sum` on Linux or `shasum` on macOS, as listed in [`plugin.yml`](plugin.yml). The download tools are used only when a compatible `mise` is not already on `PATH`.
 - Git when `BUILDKITE_COMMIT` is not already a full commit SHA.
 - Outbound HTTPS access to public GitHub release and action sources.

@@ -26,13 +26,15 @@ The Bats suite makes no live network requests. CI runs these checks plus the Bui
 
 The Buildkite Pipelines build runs required released-runtime smoke tests that:
 
-- Pins the plugin to the build's full public commit SHA.
-- Pins `buildkite-gha` v0.17.0 through mise.
-- Runs Linux-only default-image and explicit-image jobs with the experimental `runner` user, a mixed Linux-to-macOS graph, and a macOS-only graph.
+- Pin the plugin to the build's full public commit SHA, except the native macOS importer regressions, which retain plugin v0.11.0.
+- Pin `buildkite-gha` v0.46.2 through mise.
+- Run Linux-only default-image and explicit-image jobs with the experimental `runner` user, a mixed Linux-to-macOS graph, and a macOS-only graph.
 
-These tests use Linux x86-64 and native macOS arm64 Buildkite hosted agents without configured secrets or a cache service.
+These tests use Linux x86-64 and native macOS arm64 Buildkite hosted agents running Agent v4, without configured secrets or a cache service. The mixed graphs explicitly disable `experimental-runner-user` to retain their existing root execution; the Linux-only graphs retain runner-user coverage despite the newer runtime's default changing to `true`.
 
-The same build also runs source smokes with a pinned full `buildkite-gha` commit. They verify that `source-ref` installs the required Go toolchain, builds paired Linux amd64 and Darwin arm64 executables from the selected source, and runs Linux (including the experimental `runner` user), mixed, and macOS-only graphs without replacing the released-runtime smoke.
+The same build also runs source smokes pinned to the v0.46.2 commit, [`e492fcadf9b93148e5797e8be89d11ad64a220be`](https://github.com/buildkite/buildkite-gha/commit/e492fcadf9b93148e5797e8be89d11ad64a220be). They verify that `source-ref` installs the required Go toolchain, builds paired Linux amd64 and Darwin arm64 executables from the selected source, and runs Linux (including the experimental `runner` user), mixed, and macOS-only graphs without replacing the released-runtime smoke.
+
+v0.46.2 is the first published runtime that removes `--reject-secrets` from pipeline uploads. Agent v4 removed that flag and rejects secrets by default; the former v0.17.0, native-importer v0.13.0, and source smoke pins fail on Agent v4. Keep `--no-interpolation` and default secret rejection enabled; do not set `BUILDKITE_AGENT_PIPELINE_UPLOAD_ALLOW_SECRETS=true`. See the [versioned upload contract](https://github.com/buildkite/buildkite-gha/blob/v0.46.2/docs/cli.md#upload).
 
 ## Release the plugin
 
