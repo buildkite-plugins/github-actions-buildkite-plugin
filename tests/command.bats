@@ -20,12 +20,17 @@ printf 'runtime=%s %s\n' "$0" "$*" >> "${MOCK_LOG:?}"
 printf 'runtime-configuration=%s\n' "${BUILDKITE_PLUGIN_CONFIGURATION:-}" >> "${MOCK_LOG:?}"
 printf 'darwin-runtime=%s\n' "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" >> "${MOCK_LOG:?}"
 printf 'linux-runtime=%s\n' "${BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME:-}" >> "${MOCK_LOG:?}"
+printf 'windows-runtime=%s\n' "${BUILDKITE_GHA_PLUGIN_DEV_WINDOWS_RUNTIME:-}" >> "${MOCK_LOG:?}"
 printf 'runtime-root-mode=%s\n' "$(stat -c %a "$(dirname "$(dirname "$0")")")" >> "${MOCK_LOG:?}"
 [[ "${1:-}" == plugin ]]
+[[ "${BUILDKITE_GHA_PLUGIN_DEV_WINDOWS_RUNTIME:-}" == /*/go/bin/windows_amd64/buildkite-gha.exe ]]
+[[ -x "$BUILDKITE_GHA_PLUGIN_DEV_WINDOWS_RUNTIME" ]]
 if [[ "${MOCK_HOST_PLATFORM:?}" == linux/amd64 ]]; then
+  [[ "${BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME:-}" == "$0" ]]
   [[ "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" == /*/go/bin/darwin_arm64/buildkite-gha ]]
   [[ -x "$BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME" ]]
 else
+  [[ "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" == "$0" ]]
   [[ "${BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME:-}" == /*/go/bin/linux_amd64/buildkite-gha ]]
   [[ -x "$BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME" ]]
 fi
@@ -89,9 +94,13 @@ if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${3:-}" == go@1.26.5 &&
     if [[ "\$goos/\$goarch" != "\${MOCK_HOST_PLATFORM:?}" ]]; then
       gobin="\$gobin/\${goos}_\${goarch}"
     fi
+    executable=buildkite-gha
+    if [[ "\$goos" == windows ]]; then
+      executable=buildkite-gha.exe
+    fi
     mkdir -p "\$gobin"
-    cp "\${MOCK_RUNTIME_TEMPLATE:?}" "\$gobin/buildkite-gha"
-    chmod +x "\$gobin/buildkite-gha"
+    cp "\${MOCK_RUNTIME_TEMPLATE:?}" "\$gobin/\$executable"
+    chmod +x "\$gobin/\$executable"
     exit
   fi
 fi
@@ -270,41 +279,55 @@ teardown() { rm -rf "$TMP"; }
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 0 ]
-  [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 2 ]
-  [[ "$output" == *"building native linux/amd64 importer and darwin/arm64 runtime from buildkite-gha source commit $commit with Go 1.26.5"* ]]
+  [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 3 ]
+  for platform in linux/amd64 darwin/arm64 windows/amd64; do
+    [[ "$output" == *"building $platform runtime from buildkite-gha source commit $commit with Go 1.26.5"* ]]
+  done
+  [[ "$output" == *"running native linux/amd64 importer"* ]]
   grep -E "^build=linux/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
   grep -E "^build=darwin/arm64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
+  grep -E "^build=windows/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
   grep -E '^runtime=/[^ ]+/go/bin/buildkite-gha plugin$' "$MOCK_LOG"
   grep -Fx "runtime-configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
   darwin_runtime="$(sed -n 's/^darwin-runtime=//p' "$MOCK_LOG")"
   [[ "$darwin_runtime" == /*/go/bin/darwin_arm64/buildkite-gha ]]
   grep -Fx 'runtime-root-mode=700' "$MOCK_LOG"
   [ ! -e "$darwin_runtime" ]
+  windows_runtime="$(sed -n 's/^windows-runtime=//p' "$MOCK_LOG")"
+  [[ "$windows_runtime" == "${darwin_runtime%/darwin_arm64/*}/windows_amd64/buildkite-gha.exe" ]]
+  [ ! -e "$windows_runtime" ]
   grep -Fx 'minimum-release-age=' "$MOCK_LOG"
 }
 
-@test "builds paired runtimes and runs the native Darwin importer with the Linux path" {
+@test "builds all runtimes and runs the native Darwin importer with Linux and Windows paths" {
   mock_host darwin/arm64
   commit=abcdef0123456789abcdef0123456789abcdef01
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [[ "$output" == *"building native darwin/arm64 importer and linux/amd64 runtime from buildkite-gha source commit $commit with Go 1.26.5"* ]]
+  [[ "$output" == *"running native darwin/arm64 importer"* ]]
+  grep -E "^build=windows/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
   grep -E '^runtime=/[^ ]+/go/bin/buildkite-gha plugin$' "$MOCK_LOG"
   linux_runtime="$(sed -n 's/^linux-runtime=//p' "$MOCK_LOG")"
   [[ "$linux_runtime" == /*/go/bin/linux_amd64/buildkite-gha ]]
   [ ! -e "$linux_runtime" ]
+  windows_runtime="$(sed -n 's/^windows-runtime=//p' "$MOCK_LOG")"
+  [[ "$windows_runtime" == "${linux_runtime%/linux_amd64/*}/windows_amd64/buildkite-gha.exe" ]]
+  [ ! -e "$windows_runtime" ]
 }
 
 @test "stops and removes source runtimes when a cross-build fails" {
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=abcdef0123456789abcdef0123456789abcdef01
-  export MOCK_BUILD_FAILURE_PLATFORM=darwin/arm64
-  run "$REPO/hooks/command"
-  [ "$status" -eq 42 ] || { echo "$output"; false; }
-  ! grep -q '^runtime=' "$MOCK_LOG"
-  source_gopath="$(sed -n 's/^build=linux\/amd64:\([^:]*\):.*$/\1/p' "$MOCK_LOG")"
-  [ -n "$source_gopath" ]
-  [ ! -e "${source_gopath%/*}" ]
+  for platform in darwin/arm64 windows/amd64; do
+    : > "$MOCK_LOG"
+    export MOCK_BUILD_FAILURE_PLATFORM="$platform"
+    run "$REPO/hooks/command"
+    [ "$status" -eq 42 ] || { echo "$output"; false; }
+    ! grep -q '^runtime=' "$MOCK_LOG"
+    source_gopath="$(sed -n 's/^build=linux\/amd64:\([^:]*\):.*$/\1/p' "$MOCK_LOG")"
+    [ -n "$source_gopath" ]
+    [ ! -e "${source_gopath%/*}" ]
+  done
 }
 
 @test "resolves a branch once and passes server-selected configuration without runner overrides" {
@@ -321,8 +344,8 @@ teardown() { rm -rf "$TMP"; }
     [[ "$output" == *"resolved source ref 'feature/source-testing' to $commit"* ]]
     [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 1 ]
     grep -Fx 'resolve=ls-remote --exit-code https://github.com/buildkite/buildkite-gha.git refs/heads/feature/source-testing refs/tags/feature/source-testing refs/tags/feature/source-testing^{}' "$MOCK_LOG"
-    [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 2 ]
-    for platform in linux/amd64 darwin/arm64; do
+    [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 3 ]
+    for platform in linux/amd64 darwin/arm64 windows/amd64; do
       grep -E "^build=$platform:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
     done
     grep -Fx "runtime-configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
@@ -340,8 +363,8 @@ $commit refs/tags/v0.71.1^{}"; do
     run "$REPO/hooks/command"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
     [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 1 ]
-    [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 2 ]
-    [ "$(grep -c "^build=.*@$commit$" "$MOCK_LOG")" -eq 2 ]
+    [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 3 ]
+    [ "$(grep -c "^build=.*@$commit$" "$MOCK_LOG")" -eq 3 ]
   done
 }
 
