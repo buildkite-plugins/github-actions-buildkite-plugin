@@ -26,9 +26,11 @@ printf 'runtime-root-mode=%s\n' "$(stat -c %a "$(dirname "$(dirname "$0")")")" >
 [[ "${BUILDKITE_GHA_PLUGIN_DEV_WINDOWS_RUNTIME:-}" == /*/go/bin/windows_amd64/buildkite-gha.exe ]]
 [[ -x "$BUILDKITE_GHA_PLUGIN_DEV_WINDOWS_RUNTIME" ]]
 if [[ "${MOCK_HOST_PLATFORM:?}" == linux/amd64 ]]; then
+  [[ "${BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME:-}" == "$0" ]]
   [[ "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" == /*/go/bin/darwin_arm64/buildkite-gha ]]
   [[ -x "$BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME" ]]
 else
+  [[ "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" == "$0" ]]
   [[ "${BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME:-}" == /*/go/bin/linux_amd64/buildkite-gha ]]
   [[ -x "$BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME" ]]
 fi
@@ -278,7 +280,10 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 0 ]
   [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 3 ]
-  [[ "$output" == *"building native linux/amd64 importer and darwin/arm64 and windows/amd64 runtimes from buildkite-gha source commit $commit with Go 1.26.5"* ]]
+  for platform in linux/amd64 darwin/arm64 windows/amd64; do
+    [[ "$output" == *"building $platform runtime from buildkite-gha source commit $commit with Go 1.26.5"* ]]
+  done
+  [[ "$output" == *"running native linux/amd64 importer"* ]]
   grep -E "^build=linux/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
   grep -E "^build=darwin/arm64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
   grep -E "^build=windows/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
@@ -300,7 +305,7 @@ teardown() { rm -rf "$TMP"; }
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [[ "$output" == *"building native darwin/arm64 importer and linux/amd64 and windows/amd64 runtimes from buildkite-gha source commit $commit with Go 1.26.5"* ]]
+  [[ "$output" == *"running native darwin/arm64 importer"* ]]
   grep -E "^build=windows/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
   grep -E '^runtime=/[^ ]+/go/bin/buildkite-gha plugin$' "$MOCK_LOG"
   linux_runtime="$(sed -n 's/^linux-runtime=//p' "$MOCK_LOG")"
