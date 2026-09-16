@@ -22,8 +22,9 @@ if [[ -n "$source_ref" && -n "$configured_version" ]]; then
   echo "github-actions plugin: version and source-ref are mutually exclusive" >&2
   exit 1
 fi
-if [[ -n "$source_ref" && ! "$source_ref" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "github-actions plugin: invalid buildkite-gha source ref '$source_ref'; expected a full lowercase 40-character commit" >&2
+if [[ -n "$source_ref" && ! "$source_ref" =~ ^[0-9a-f]{40}$ ]] &&
+  ! git check-ref-format "refs/heads/$source_ref"; then
+  echo "github-actions plugin: invalid buildkite-gha source ref '$source_ref'; expected a full lowercase 40-character commit, branch, or tag" >&2
   exit 1
 fi
 
@@ -57,6 +58,33 @@ case "$host_os/$host_arch" in
     exit 1
     ;;
 esac
+
+if [[ -n "$source_ref" && ! "$source_ref" =~ ^[0-9a-f]{40}$ ]]; then
+  if ! remote_refs="$(git ls-remote --exit-code https://github.com/buildkite/buildkite-gha.git \
+    "refs/heads/$source_ref" "refs/tags/$source_ref" "refs/tags/$source_ref^{}")"; then
+    echo "github-actions plugin: could not resolve buildkite-gha source ref '$source_ref'" >&2
+    exit 1
+  fi
+  branch_commit='' tag_commit='' peeled_commit=''
+  while read -r commit ref; do
+    case "$ref" in
+      "refs/heads/$source_ref") branch_commit="$commit" ;;
+      "refs/tags/$source_ref") tag_commit="$commit" ;;
+      "refs/tags/$source_ref^{}") peeled_commit="$commit" ;;
+    esac
+  done <<< "$remote_refs"
+  if [[ -n "$branch_commit" && -n "$tag_commit" ]]; then
+    echo "github-actions plugin: source ref '$source_ref' matches both a branch and tag; use a full commit instead" >&2
+    exit 1
+  fi
+  resolved_commit="${branch_commit:-${peeled_commit:-$tag_commit}}"
+  if [[ ! "$resolved_commit" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "github-actions plugin: source ref '$source_ref' did not resolve to a full commit" >&2
+    exit 1
+  fi
+  echo "github-actions plugin: resolved source ref '$source_ref' to $resolved_commit" >&2
+  source_ref="$resolved_commit"
+fi
 
 echo "~~~ :github: Prepare workflows"
 

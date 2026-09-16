@@ -35,7 +35,7 @@ Configure runtime selection with the following properties:
 | `workflow` | Explicit selection only: one of `workflow` or `workflows` | — | One explicit `.yml` or `.yaml` workflow path. Missing or untracked paths are skipped. |
 | `workflows` | Explicit selection only: one of `workflow` or `workflows` | — | Non-empty array of explicit `.yml` or `.yaml` workflow paths. Missing or untracked paths are skipped. |
 | `version` | No | `latest` | Latest stable or an exact `buildkite-gha` release from `0.9.0` onward. |
-| `source-ref` | No | — | Full `buildkite-gha` source commit to build for development testing; mutually exclusive with `version`. |
+| `source-ref` | No | — | `buildkite-gha` commit, branch, or tag to build for development testing; mutually exclusive with `version`. |
 | `minimum-release-age` | No | `0s` | Minimum release age used by mise when resolving `latest`. |
 | `experimental-runner-user` | No | `true` | Run generated Linux jobs as a dedicated `runner` user. Set to `false` only as a temporary compatibility opt-out. |
 | `oidc` | No | — | Buildkite OIDC token options for jobs that request GitHub-compatible OIDC. Requires a `buildkite-gha` release with OIDC support. |
@@ -44,7 +44,9 @@ Configure runtime selection with the following properties:
 > [!NOTE]
 > Plugin and runtime versions are independent. Pin `version` to keep release-version selection stable, or use `latest` to follow stable runtime releases. Increase `minimum-release-age` (for example, to `24h`) to delay newly published releases. If you update the runtime version, use its matching compatibility guide.
 
-To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit from the public `buildkite/buildkite-gha` repository and omit `version`. The plugin uses mise and Go 1.26.5 to build Linux amd64 and Darwin arm64 executables from that exact source, runs the executable native to the importer agent, and supplies the counterpart to generated jobs. Source commits are for development only and do not use release checksums, attestations, or `minimum-release-age`.
+To test unreleased runtime behavior, set `source-ref` to a full lowercase 40-character commit, branch, or tag from the public `buildkite/buildkite-gha` repository and omit `version`. Branches and tags are resolved once at importer startup and the resolved commit is logged. All runtimes use that same commit, even if the branch moves during compilation. Names shared by a branch and tag are rejected; use a full commit to disambiguate. Use a full commit when you need repeatable builds across runs.
+
+The plugin uses mise and Go 1.26.5 to build Linux amd64 and Darwin arm64 executables from that exact source, runs the executable native to the importer agent, and supplies the counterpart to generated jobs. Source builds are for development only and do not use release checksums, attestations, or `minimum-release-age`.
 
 The plugin schema validates explicit selector paths when present, the runtime-acquisition fields `version`, `source-ref`, and `minimum-release-age`, the boolean `experimental-runner-user` field, and the admission-level shape of `oidc`. It passes behavioral configuration through to the selected `buildkite-gha` runtime, which validates the complete configuration strictly. This allows runtime releases to extend the supported syntax without requiring a companion plugin release.
 
@@ -258,6 +260,20 @@ steps:
 ```
 
 Supported runtime and behavioral options may still be configured using the standard `plugins` form while omitting both `workflow` and `workflows`; the plugin forwards them without inferring trigger context.
+
+For example, test a runtime branch while keeping server-side workflow selection and automatic runner mapping:
+
+```yaml
+steps:
+  - key: github-actions
+    agents:
+      queue: importer-linux
+    plugins:
+      - github-actions#latest:
+          source-ref: main
+```
+
+Replace `main` with the runtime branch to test and `importer-linux` with your Linux amd64 or macOS arm64 importer queue. The server supplies the workflow context for the build, and the Agent API maps its `runs-on` labels to available queues. No `workflow`, `workflows`, or `runners` override is needed. This requires a build with server-selected workflow context; ordinary builds without that context still need an explicit workflow selector. Automatic mapping does not enable unavailable platforms or provision missing queues.
 
 ## Configure checkout and credentials
 

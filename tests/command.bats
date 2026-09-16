@@ -15,6 +15,7 @@ setup() {
   : > "$MOCK_LOG"
   cat > "$TMP/buildkite-gha" <<'EOF'
 #!/usr/bin/env bash
+set -euo pipefail
 printf 'runtime=%s %s\n' "$0" "$*" >> "${MOCK_LOG:?}"
 printf 'runtime-configuration=%s\n' "${BUILDKITE_PLUGIN_CONFIGURATION:-}" >> "${MOCK_LOG:?}"
 printf 'darwin-runtime=%s\n' "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" >> "${MOCK_LOG:?}"
@@ -151,11 +152,29 @@ EOF
   chmod +x "$TMP/bin/uname"
 }
 
+mock_source_resolution() {
+  export REAL_GIT="$(command -v git)"
+  cat > "$TMP/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == check-ref-format ]]; then
+  exec "$REAL_GIT" "$@"
+fi
+[[ "$1" == ls-remote && "$2" == --exit-code && "$3" == https://github.com/buildkite/buildkite-gha.git ]]
+printf 'resolve=%s\n' "$*" >> "${MOCK_LOG:?}"
+printf '%s\n' "${MOCK_SOURCE_REFS:-}"
+exit "${MOCK_RESOLUTION_EXIT:-0}"
+EOF
+  chmod +x "$TMP/bin/git"
+}
+
 teardown() { rm -rf "$TMP"; }
 
 @test "uses mise from PATH to select latest and invoke the hidden plugin command" {
+  mock_source_resolution
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 0 ]
   [[ "$output" == *"~~~ :github: Prepare workflows"* ]]
   grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
   grep -Fx 'minimum-release-age=0s' "$MOCK_LOG"
@@ -244,11 +263,14 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "passes experimental-runner-user to the native source importer" {
+  mock_source_resolution
   commit=abcdef0123456789abcdef0123456789abcdef01
   export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"
   export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/ci.yml","experimental-runner-user":true}'
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 0 ]
+  [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 2 ]
   [[ "$output" == *"building native linux/amd64 importer and darwin/arm64 runtime from buildkite-gha source commit $commit with Go 1.26.5"* ]]
   grep -E "^build=linux/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
   grep -E "^build=darwin/arm64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
@@ -285,19 +307,91 @@ teardown() { rm -rf "$TMP"; }
   [ ! -e "${source_gopath%/*}" ]
 }
 
-@test "rejects invalid or ambiguous source configuration" {
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=main
-  run "$REPO/hooks/command"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"expected a full lowercase 40-character commit"* ]]
-  [ ! -s "$MOCK_LOG" ]
+@test "resolves a branch once and passes server-selected configuration without runner overrides" {
+  mock_source_resolution
+  commit=1234567890abcdef1234567890abcdef12345678
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=feature/source-testing
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"source-ref":"feature/source-testing"}'
+  export MOCK_SOURCE_REFS="$commit refs/heads/feature/source-testing"
+  for host in linux/amd64 darwin/arm64; do
+    : > "$MOCK_LOG"
+    mock_host "$host"
+    run "$REPO/hooks/command"
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+    [[ "$output" == *"resolved source ref 'feature/source-testing' to $commit"* ]]
+    [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 1 ]
+    grep -Fx 'resolve=ls-remote --exit-code https://github.com/buildkite/buildkite-gha.git refs/heads/feature/source-testing refs/tags/feature/source-testing refs/tags/feature/source-testing^{}' "$MOCK_LOG"
+    [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 2 ]
+    for platform in linux/amd64 darwin/arm64; do
+      grep -E "^build=$platform:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
+    done
+    grep -Fx "runtime-configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
+  done
+}
 
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=abcdef0123456789abcdef0123456789abcdef01
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.9.0
+@test "resolves lightweight and annotated tags to the commit rather than the tag object" {
+  mock_source_resolution
+  commit=1234567890abcdef1234567890abcdef12345678
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=v0.71.1
+  for refs in "$commit refs/tags/v0.71.1" "abcdef0123456789abcdef0123456789abcdef01 refs/tags/v0.71.1
+$commit refs/tags/v0.71.1^{}"; do
+    : > "$MOCK_LOG"
+    export MOCK_SOURCE_REFS="$refs"
+    run "$REPO/hooks/command"
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+    [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 1 ]
+    [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 2 ]
+    [ "$(grep -c "^build=.*@$commit$" "$MOCK_LOG")" -eq 2 ]
+  done
+}
+
+@test "stops before setup when source resolution fails or is ambiguous" {
+  mock_source_resolution
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=missing
+  export MOCK_RESOLUTION_EXIT=2
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"version and source-ref are mutually exclusive"* ]]
-  [ ! -s "$MOCK_LOG" ]
+  [[ "$output" == *"could not resolve buildkite-gha source ref 'missing'"* ]]
+  [[ "$output" != *"Prepare workflows"* ]]
+  [ "$(grep -c '^mise=' "$MOCK_LOG")" -eq 0 ]
+
+  export MOCK_RESOLUTION_EXIT=0
+  export MOCK_SOURCE_REFS='abcdef0123456789abcdef0123456789abcdef01 refs/heads/missing
+1234567890abcdef1234567890abcdef12345678 refs/tags/missing'
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"matches both a branch and tag"* ]]
+  [[ "$output" != *"Prepare workflows"* ]]
+  [ "$(grep -c '^mise=' "$MOCK_LOG")" -eq 0 ]
+
+  for refs in 'not-a-commit refs/heads/missing' 'abcdef0123456789abcdef0123456789abcdef01 refs/heads/prefix/refs/heads/missing'; do
+    export MOCK_SOURCE_REFS="$refs"
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"did not resolve to a full commit"* ]]
+    [[ "$output" != *"Prepare workflows"* ]]
+    [ "$(grep -c '^mise=' "$MOCK_LOG")" -eq 0 ]
+  done
+}
+
+@test "rejects invalid or ambiguous source configuration" {
+  mock_source_resolution
+  for ref in 'bad ref' 'main*' '../main' 'main^{commit}'; do
+    export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$ref"
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"expected a full lowercase 40-character commit, branch, or tag"* ]]
+    [ ! -s "$MOCK_LOG" ]
+  done
+
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.9.0
+  for ref in abcdef0123456789abcdef0123456789abcdef01 main; do
+    export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$ref"
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"version and source-ref are mutually exclusive"* ]]
+    [ ! -s "$MOCK_LOG" ]
+  done
 }
 
 @test "rejects versions outside the stable plugin contract" {
