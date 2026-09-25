@@ -184,7 +184,7 @@ teardown() { rm -rf "$TMP"; }
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 0 ]
-  [[ "$output" == *"~~~ :github: Prepare workflows"* ]]
+  [[ "$output" == *"--- :github: Prepare workflows"* ]]
   grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
   grep -Fx 'minimum-release-age=0s' "$MOCK_LOG"
   grep -Fx 'github-cli-tokens=false' "$MOCK_LOG"

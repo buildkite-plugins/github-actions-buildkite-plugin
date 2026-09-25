@@ -82,7 +82,7 @@ if [[ -n "$source_ref" && ! "$source_ref" =~ ^[0-9a-f]{40}$ ]]; then
   source_ref="$resolved_commit"
 fi
 
-echo "~~~ :github: Prepare workflows"
+echo "--- :github: Prepare workflows"
 
 setup_mise "$host_platform"
 export MISE_YES=1
