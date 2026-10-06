@@ -62,6 +62,7 @@ printf 'cwd=%s\n' "\$PWD" >> "\${MOCK_LOG:?}"
 printf 'prereleases=%s\n' "\${MISE_PRERELEASES:-}" >> "\${MOCK_LOG:?}"
 printf 'url-replacements=%s\n' "\${MISE_URL_REPLACEMENTS:-}" >> "\${MOCK_LOG:?}"
 printf 'installs-dir=%s\n' "\${MISE_INSTALLS_DIR:-}" >> "\${MOCK_LOG:?}"
+printf 'cache-dir=%s\n' "\${MISE_CACHE_DIR:-}" >> "\${MOCK_LOG:?}"
 printf 'credential-command=%s\n' "\${MISE_GITHUB_CREDENTIAL_COMMAND:-}" >> "\${MOCK_LOG:?}"
 if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${4:-}" == -- && "\${5:-}" == buildkite-gha && "\${6:-}" == plugin ]]; then
   if [[ "\${MISE_QUIET:-}" != 1 ]]; then
@@ -428,8 +429,9 @@ $commit refs/tags/v0.71.1^{}"; do
   done
 }
 
-@test "isolates mise settings while preserving an explicit data directory" {
+@test "isolates mise settings while coupling cache locks to the data directory" {
   export MISE_DATA_DIR="$TMP/trusted-mise-data"
+  export MISE_CACHE_DIR="$TMP/untrusted-cache"
   export MISE_MINIMUM_RELEASE_AGE_EXCLUDES='github:*'
   export MISE_PRERELEASES=1
   export MISE_URL_REPLACEMENTS='https://github.com|https://example.test'
@@ -440,6 +442,7 @@ $commit refs/tags/v0.71.1^{}"; do
   grep -Fx 'prereleases=' "$MOCK_LOG"
   grep -Fx 'url-replacements=' "$MOCK_LOG"
   grep -Fx 'installs-dir=' "$MOCK_LOG"
+  grep -Fx "cache-dir=$MISE_DATA_DIR/cache" "$MOCK_LOG"
   grep -Fx 'credential-command=' "$MOCK_LOG"
 }
 

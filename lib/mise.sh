@@ -105,6 +105,8 @@ setup_mise() {
   local platform="$1" candidate data_dir platform_dir
   data_dir="$(mise_data_dir)"
   export MISE_DATA_DIR="$data_dir"
+  # Mise keeps install-state markers and locks in its cache; keep both on the same lifecycle.
+  export MISE_CACHE_DIR="$data_dir/cache"
   if candidate="$(command -v mise 2>/dev/null)" && mise_is_compatible "$candidate"; then
     MISE_BIN="$candidate"
     return
