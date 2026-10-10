@@ -3,7 +3,7 @@ lockfile = true
 
 [tools]
 bats = "1.14.0"
-github-cli = "2.97.0"
+github-cli = "2.102.0"
 shellcheck = "0.11.0"
 
 [tasks.test]
