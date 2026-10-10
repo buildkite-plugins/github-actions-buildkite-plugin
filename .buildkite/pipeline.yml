@@ -97,7 +97,7 @@ steps:
           retry:
             automatic: false
           plugins:
-            - github-actions#v0.11.0:
+            - github-actions#v0.13.0:
                 workflows:
                   - .buildkite/fixtures/plugin-native-importer-release-macos.yml
                 version: 0.46.2
@@ -112,7 +112,7 @@ steps:
           retry:
             automatic: false
           plugins:
-            - github-actions#v0.11.0:
+            - github-actions#v0.13.0:
                 workflows:
                   - .buildkite/fixtures/plugin-native-importer-release-mixed.yml
                 version: 0.46.2
