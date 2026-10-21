@@ -80,7 +80,7 @@ if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${4:-}" == -- && "\${5:
   fi
   exit "\${MOCK_IMPORTER_EXIT:-0}"
 fi
-if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${3:-}" == go@1.26.5 && "\${4:-}" == -- && "\${5:-}" == env && "\${6:-}" == -u && "\${7:-}" == GOBIN && "\${8:-}" == CGO_ENABLED=0 && "\${9:-}" == GOTOOLCHAIN=local ]]; then
+if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${3:-}" == go@1.26.10 && "\${4:-}" == -- && "\${5:-}" == env && "\${6:-}" == -u && "\${7:-}" == GOBIN && "\${8:-}" == CGO_ENABLED=0 && "\${9:-}" == GOTOOLCHAIN=local ]]; then
   goos="\${10#GOOS=}"
   goarch="\${11#GOARCH=}"
   gopath="\${12#GOPATH=}"
@@ -281,7 +281,7 @@ teardown() { rm -rf "$TMP"; }
   [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 0 ]
   [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 3 ]
   for platform in linux/amd64 darwin/arm64 windows/amd64; do
-    [[ "$output" == *"building $platform runtime from buildkite-gha source commit $commit with Go 1.26.5"* ]]
+    [[ "$output" == *"building $platform runtime from buildkite-gha source commit $commit with Go 1.26.10"* ]]
   done
   [[ "$output" == *"running native linux/amd64 importer"* ]]
   grep -E "^build=linux/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
