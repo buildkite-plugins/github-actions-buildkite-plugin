@@ -38,7 +38,7 @@ exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
   chmod +x "$TMP/buildkite-gha"
   export MOCK_RUNTIME_TEMPLATE="$TMP/buildkite-gha"
-  write_mise "$TMP/bin/mise" 2026.8.4
+  write_mise "$TMP/bin/mise" 2026.10.17
   export PATH="$TMP/bin:$PATH"
 }
 
@@ -113,7 +113,7 @@ prepare_bootstrap() {
   local payload="$TMP/payload"
   rm -f "$TMP/bin/mise"
   mkdir -p "$payload/mise/bin"
-  write_mise "$payload/mise/bin/mise" 2026.8.4
+  write_mise "$payload/mise/bin/mise" 2026.10.17
   tar -czf "$TMP/mise.tar.gz" -C "$payload" mise
 
   cat > "$TMP/bin/curl" <<'EOF'
@@ -143,7 +143,7 @@ printf '%s  %s\n' "${MOCK_MISE_SHA256:?}" "$3"
 EOF
   chmod +x "$TMP/bin/curl" "$TMP/bin/sha256sum" "$TMP/bin/shasum"
   export MOCK_MISE_ARCHIVE="$TMP/mise.tar.gz"
-  export MOCK_MISE_SHA256=7d49c0c3633572f57e2383aec5284067675122b6824990f6ac927c5a40c81994
+  export MOCK_MISE_SHA256=54dc5f1a0de14bddf70a4d8273603647c140eedd8b9d083a8f73ca13a9a82f53
   export MISE_DATA_DIR="$TMP/mise-data"
   export PATH="$TMP/bin:/usr/bin:/bin"
 }
@@ -514,10 +514,10 @@ EOF
   prepare_bootstrap
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [[ "$output" == *"installing mise 2026.8.4"* ]]
-  grep -F 'curl=--disable --fail --silent --show-error --location --proto =https --proto-redir =https --tlsv1.2 https://github.com/jdx/mise/releases/download/v2026.8.4/mise-v2026.8.4-linux-x64-musl.tar.gz --output ' "$MOCK_LOG"
+  [[ "$output" == *"installing mise 2026.10.17"* ]]
+  grep -F 'curl=--disable --fail --silent --show-error --location --proto =https --proto-redir =https --tlsv1.2 https://github.com/jdx/mise/releases/download/v2026.10.17/mise-v2026.10.17-linux-x64-musl.tar.gz --output ' "$MOCK_LOG"
   grep -F 'sha256sum=' "$MOCK_LOG"
-  [ -x "$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.8.4/linux-amd64/mise" ]
+  [ -x "$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.10.17/linux-amd64/mise" ]
   grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
 
   : > "$MOCK_LOG"
@@ -530,13 +530,13 @@ EOF
 @test "installs the pinned macOS arm64 mise asset with its platform checksum" {
   prepare_bootstrap
   mock_host darwin/arm64
-  export MOCK_MISE_SHA256=5d79a4e5df212017931e1b352715985a8680e7fe409e071aef723261db3a5b89
+  export MOCK_MISE_SHA256=d7c50c1683524a764260986ccc9c41c0de5e1fcd491714b5640b657b76781af6
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -F 'https://github.com/jdx/mise/releases/download/v2026.8.4/mise-v2026.8.4-macos-arm64.tar.gz --output ' "$MOCK_LOG"
+  grep -F 'https://github.com/jdx/mise/releases/download/v2026.10.17/mise-v2026.10.17-macos-arm64.tar.gz --output ' "$MOCK_LOG"
   grep -E '^shasum=-a 256 ' "$MOCK_LOG"
   ! grep -q '^sha256sum=' "$MOCK_LOG"
-  [ -x "$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.8.4/darwin-arm64/mise" ]
+  [ -x "$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.10.17/darwin-arm64/mise" ]
 }
 
 @test "replaces an old mise and stops when bootstrap verification fails" {
@@ -545,7 +545,38 @@ EOF
   export MOCK_MISE_SHA256=0000000000000000000000000000000000000000000000000000000000000000
   run "$REPO/hooks/command"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"mise on PATH is older than 2026.5.12"* ]]
+  [[ "$output" == *"mise on PATH is older than 2026.10.17"* ]]
   [[ "$output" == *"mise release archive checksum verification failed"* ]]
   ! grep -q '^mise=--no-config exec ' "$MOCK_LOG"
+}
+
+@test "accepts the qualified mise minimum and later versions only" {
+  for version in 2026.10.17 2026.10.18 2026.11.0 2027.1.0; do
+    write_mise "$TMP/bin/mise" "$version"
+    run bash -c 'source "$1/lib/mise.sh"; mise_is_compatible "$2"' _ "$REPO" "$TMP/bin/mise"
+    [ "$status" -eq 0 ] || { echo "$version: $output"; false; }
+  done
+  for version in 2025.12.99 2026.5.12 2026.8.4 2026.9.99 2026.10.15 2026.10.16; do
+    write_mise "$TMP/bin/mise" "$version"
+    run bash -c 'source "$1/lib/mise.sh"; mise_is_compatible "$2"' _ "$REPO" "$TMP/bin/mise"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "replaces unremediated PATH and managed mise copies before execution" {
+  prepare_bootstrap
+  cached="$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.10.17/linux-amd64/mise"
+  mkdir -p "$(dirname "$cached")"
+  for version in 2026.5.12 2026.8.4 2026.10.15 2026.10.16; do
+    : > "$MOCK_LOG"
+    write_mise "$TMP/bin/mise" "$version"
+    write_mise "$cached" "$version"
+    run "$REPO/hooks/command"
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+    [[ "$output" == *"mise on PATH is older than 2026.10.17"* ]]
+    [[ "$output" == *"installing mise 2026.10.17"* ]]
+    grep -q '^curl=' "$MOCK_LOG"
+    run "$cached" version
+    [[ "$output" == "2026.10.17 linux-x64" ]]
+  done
 }

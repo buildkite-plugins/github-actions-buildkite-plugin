@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-MISE_BOOTSTRAP_VERSION="2026.8.4"
-MISE_MINIMUM_VERSION="2026.5.12"
+# Qualified release with rustls-webpki 0.103.16 and webpki-root-certs 1.0.10.
+MISE_BOOTSTRAP_VERSION="2026.10.17"
+MISE_MINIMUM_VERSION="2026.10.17"
 
 mise_error() { echo "github-actions plugin: $*" >&2; }
 
@@ -20,8 +21,8 @@ mise_is_compatible() {
   version="$(mise_version "$1")" || return 1
   IFS=. read -r year month patch <<< "$version"
   (( year > 2026 ||
-    (year == 2026 && month > 5) ||
-    (year == 2026 && month == 5 && patch >= 12) ))
+    (year == 2026 && month > 10) ||
+    (year == 2026 && month == 10 && patch >= 17) ))
 }
 
 mise_data_dir() {
@@ -52,12 +53,12 @@ install_mise() (
   case "$platform" in
     linux/amd64)
       asset="mise-v${MISE_BOOTSTRAP_VERSION}-linux-x64-musl.tar.gz"
-      checksum="7d49c0c3633572f57e2383aec5284067675122b6824990f6ac927c5a40c81994"
+      checksum="54dc5f1a0de14bddf70a4d8273603647c140eedd8b9d083a8f73ca13a9a82f53"
       command -v sha256sum >/dev/null 2>&1 || { mise_error "required command 'sha256sum' was not found"; return 1; }
       ;;
     darwin/arm64)
       asset="mise-v${MISE_BOOTSTRAP_VERSION}-macos-arm64.tar.gz"
-      checksum="5d79a4e5df212017931e1b352715985a8680e7fe409e071aef723261db3a5b89"
+      checksum="d7c50c1683524a764260986ccc9c41c0de5e1fcd491714b5640b657b76781af6"
       command -v shasum >/dev/null 2>&1 || { mise_error "required command 'shasum' was not found"; return 1; }
       ;;
     *) mise_error "unsupported mise bootstrap platform '$platform'"; return 1 ;;
