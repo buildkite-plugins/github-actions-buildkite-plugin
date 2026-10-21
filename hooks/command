@@ -95,8 +95,8 @@ if [[ -n "$source_ref" ]]; then
   for target in linux/amd64:LINUX darwin/arm64:DARWIN windows/amd64:WINDOWS; do
     platform="${target%:*}"
     runtime_environment="BUILDKITE_GHA_PLUGIN_DEV_${target##*:}_RUNTIME"
-    echo "github-actions plugin: building $platform runtime from buildkite-gha source commit $source_ref with Go 1.26.5" >&2
-    "$MISE_BIN" --no-config exec go@1.26.5 -- \
+    echo "github-actions plugin: building $platform runtime from buildkite-gha source commit $source_ref with Go 1.26.10" >&2
+    "$MISE_BIN" --no-config exec go@1.26.10 -- \
       env -u GOBIN CGO_ENABLED=0 GOTOOLCHAIN=local GOOS="${platform%/*}" GOARCH="${platform#*/}" GOPATH="$source_gopath" GOMODCACHE="$source_mod_cache" \
       go install -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${source_ref}"
 
