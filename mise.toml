@@ -12,7 +12,7 @@ run = "bats tests"
 
 [tasks.lint]
 description = "Run ShellCheck"
-run = "shellcheck hooks/* lib/*"
+run = "shellcheck hooks/*"
 
 [tasks.check]
 description = "Run all local checks"

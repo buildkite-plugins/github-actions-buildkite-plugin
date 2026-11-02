@@ -2,581 +2,268 @@
 
 setup() {
   REPO="$BATS_TEST_DIRNAME/.."
-  TMP="$(mktemp -d)"
-  export MOCK_LOG="$TMP/mock.log"
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/ci.yml","runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
-  export BUILDKITE_COMMIT=1111111111111111111111111111111111111111
-  unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION BUILDKITE_PLUGIN__VERSION
-  unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF
-  unset BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE BUILDKITE_PLUGIN__MINIMUM_RELEASE_AGE
-  unset MISE_DATA_DIR
-  export MOCK_HOST_PLATFORM=linux/amd64
-  mkdir -p "$TMP/bin"
+  export FIXTURE="$BATS_TEST_TMPDIR/fixture"
+  export TMPDIR="$BATS_TEST_TMPDIR/downloads"
+  export MOCK_LOG="$BATS_TEST_TMPDIR/download.log"
+  export BUILDKITE_PLUGIN_CONFIGURATION='{}'
+  export MOCK_OS=Linux MOCK_ARCH=x86_64
+  mkdir -p "$FIXTURE/bin" "$TMPDIR"
   : > "$MOCK_LOG"
-  cat > "$TMP/buildkite-gha" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-printf 'runtime=%s %s\n' "$0" "$*" >> "${MOCK_LOG:?}"
-printf 'runtime-configuration=%s\n' "${BUILDKITE_PLUGIN_CONFIGURATION:-}" >> "${MOCK_LOG:?}"
-printf 'darwin-runtime=%s\n' "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" >> "${MOCK_LOG:?}"
-printf 'linux-runtime=%s\n' "${BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME:-}" >> "${MOCK_LOG:?}"
-printf 'windows-runtime=%s\n' "${BUILDKITE_GHA_PLUGIN_DEV_WINDOWS_RUNTIME:-}" >> "${MOCK_LOG:?}"
-printf 'runtime-root-mode=%s\n' "$(stat -c %a "$(dirname "$(dirname "$0")")")" >> "${MOCK_LOG:?}"
-[[ "${1:-}" == plugin ]]
-[[ "${BUILDKITE_GHA_PLUGIN_DEV_WINDOWS_RUNTIME:-}" == /*/go/bin/windows_amd64/buildkite-gha.exe ]]
-[[ -x "$BUILDKITE_GHA_PLUGIN_DEV_WINDOWS_RUNTIME" ]]
-if [[ "${MOCK_HOST_PLATFORM:?}" == linux/amd64 ]]; then
-  [[ "${BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME:-}" == "$0" ]]
-  [[ "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" == /*/go/bin/darwin_arm64/buildkite-gha ]]
-  [[ -x "$BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME" ]]
-else
-  [[ "${BUILDKITE_GHA_PLUGIN_DEV_DARWIN_RUNTIME:-}" == "$0" ]]
-  [[ "${BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME:-}" == /*/go/bin/linux_amd64/buildkite-gha ]]
-  [[ -x "$BUILDKITE_GHA_PLUGIN_DEV_LINUX_RUNTIME" ]]
-fi
-exit "${MOCK_IMPORTER_EXIT:-0}"
-EOF
-  chmod +x "$TMP/buildkite-gha"
-  export MOCK_RUNTIME_TEMPLATE="$TMP/buildkite-gha"
-  write_mise "$TMP/bin/mise" 2026.10.17
-  export PATH="$TMP/bin:$PATH"
-}
-
-write_mise() {
-  local path="$1" version="$2"
-  cat > "$path" <<EOF
-#!/usr/bin/env bash
-if [[ "\${1:-}" == version ]]; then
-  echo "$version linux-x64"
-  exit
-fi
-printf 'mise=%s\n' "\$*" >> "\${MOCK_LOG:?}"
-printf 'configuration=%s\n' "\${BUILDKITE_PLUGIN_CONFIGURATION:-}" >> "\${MOCK_LOG:?}"
-printf 'commit=%s\n' "\${BUILDKITE_COMMIT:-}" >> "\${MOCK_LOG:?}"
-printf 'group=%s\n' "\${BUILDKITE_GROUP_LABEL:-}" >> "\${MOCK_LOG:?}"
-printf 'minimum-release-age=%s\n' "\${MISE_MINIMUM_RELEASE_AGE:-}" >> "\${MOCK_LOG:?}"
-printf 'github-cli-tokens=%s\n' "\${MISE_GITHUB_GH_CLI_TOKENS:-}" >> "\${MOCK_LOG:?}"
-printf 'yes=%s\n' "\${MISE_YES:-}" >> "\${MOCK_LOG:?}"
-printf 'quiet=%s\n' "\${MISE_QUIET:-}" >> "\${MOCK_LOG:?}"
-printf 'cwd=%s\n' "\$PWD" >> "\${MOCK_LOG:?}"
-printf 'prereleases=%s\n' "\${MISE_PRERELEASES:-}" >> "\${MOCK_LOG:?}"
-printf 'url-replacements=%s\n' "\${MISE_URL_REPLACEMENTS:-}" >> "\${MOCK_LOG:?}"
-printf 'installs-dir=%s\n' "\${MISE_INSTALLS_DIR:-}" >> "\${MOCK_LOG:?}"
-printf 'credential-command=%s\n' "\${MISE_GITHUB_CREDENTIAL_COMMAND:-}" >> "\${MOCK_LOG:?}"
-if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${4:-}" == -- && "\${5:-}" == buildkite-gha && "\${6:-}" == plugin ]]; then
-  if [[ "\${MISE_QUIET:-}" != 1 ]]; then
-    echo 'mise github:buildkite/buildkite-gha installing'
-  fi
-  if [[ "\${MOCK_MISE_ACQUISITION_FAILURE:-}" == 1 ]]; then
-    echo 'mise ERROR failed to download buildkite-gha release' >&2
-    exit 42
-  fi
-  if [[ -z "\${BUILDKITE_PLUGIN_CONFIGURATION:-}" ]]; then
-    echo 'buildkite-gha: plugin: BUILDKITE_PLUGIN_CONFIGURATION is required' >&2
-    exit 2
-  fi
-  if [[ -n "\${MOCK_IMPORTER_ERROR:-}" ]]; then
-    echo "\$MOCK_IMPORTER_ERROR" >&2
-  fi
-  exit "\${MOCK_IMPORTER_EXIT:-0}"
-fi
-if [[ "\${1:-}" == --no-config && "\${2:-}" == exec && "\${3:-}" == go@1.26.10 && "\${4:-}" == -- && "\${5:-}" == env && "\${6:-}" == -u && "\${7:-}" == GOBIN && "\${8:-}" == CGO_ENABLED=0 && "\${9:-}" == GOTOOLCHAIN=local ]]; then
-  goos="\${10#GOOS=}"
-  goarch="\${11#GOARCH=}"
-  gopath="\${12#GOPATH=}"
-  gomodcache="\${13#GOMODCACHE=}"
-  if [[ "\${14:-}" == go && "\${15:-}" == install && "\${16:-}" == -trimpath && -n "\$goos" && -n "\$goarch" && -n "\$gopath" && -n "\$gomodcache" ]]; then
-    printf 'build=%s/%s:%s:%s:%s\n' "\$goos" "\$goarch" "\$gopath" "\$gomodcache" "\${17:-}" >> "\${MOCK_LOG:?}"
-    if [[ "\${MOCK_BUILD_FAILURE_PLATFORM:-}" == "\$goos/\$goarch" ]]; then
-      exit 42
-    fi
-    gobin="\$gopath/bin"
-    if [[ "\$goos/\$goarch" != "\${MOCK_HOST_PLATFORM:?}" ]]; then
-      gobin="\$gobin/\${goos}_\${goarch}"
-    fi
-    executable=buildkite-gha
-    if [[ "\$goos" == windows ]]; then
-      executable=buildkite-gha.exe
-    fi
-    mkdir -p "\$gobin"
-    cp "\${MOCK_RUNTIME_TEMPLATE:?}" "\$gobin/\$executable"
-    chmod +x "\$gobin/\$executable"
-    exit
-  fi
-fi
-exit 64
-EOF
-  chmod +x "$path"
-}
-
-prepare_bootstrap() {
-  local payload="$TMP/payload"
-  rm -f "$TMP/bin/mise"
-  mkdir -p "$payload/mise/bin"
-  write_mise "$payload/mise/bin/mise" 2026.10.17
-  tar -czf "$TMP/mise.tar.gz" -C "$payload" mise
-
-  cat > "$TMP/bin/curl" <<'EOF'
+  cat > "$FIXTURE/buildkite-gha" <<'EOF'
 #!/usr/bin/env bash
 set -eu
-printf 'curl=%s\n' "$*" >> "${MOCK_LOG:?}"
-out=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --output) out="$2"; shift 2 ;;
-    *) shift ;;
-  esac
-done
-cp "${MOCK_MISE_ARCHIVE:?}" "$out"
+printf '%s\n' "$*" > "$FIXTURE/arguments"
+printf '%s' "$BUILDKITE_PLUGIN_CONFIGURATION" > "$FIXTURE/configuration"
+stat -c %a "$(dirname "$0")" > "$FIXTURE/mode" 2>/dev/null || stat -f %Lp "$(dirname "$0")" > "$FIXTURE/mode"
+ls -A "$(dirname "$0")" > "$FIXTURE/files"
+exit "${MOCK_IMPORTER_EXIT:-0}"
 EOF
-  cat > "$TMP/bin/sha256sum" <<'EOF'
+  echo 'not extracted' > "$FIXTURE/LICENSE"
+  tar -czf "$FIXTURE/archive.tar.gz" -C "$FIXTURE" buildkite-gha LICENSE
+  checksums
+  echo '{"tag_name":"v0.107.1"}' > "$FIXTURE/release.json"
+  cat > "$FIXTURE/bin/curl" <<'EOF'
 #!/usr/bin/env bash
-printf 'sha256sum=%s\n' "$*" >> "${MOCK_LOG:?}"
-[[ "${MOCK_CHECKSUM_FAILURE:-}" != 1 ]] || exit 1
-printf '%s  %s\n' "${MOCK_MISE_SHA256:?}" "$1"
-EOF
-  cat > "$TMP/bin/shasum" <<'EOF'
-#!/usr/bin/env bash
-printf 'shasum=%s\n' "$*" >> "${MOCK_LOG:?}"
-[[ "$1" == -a && "$2" == 256 ]]
-printf '%s  %s\n' "${MOCK_MISE_SHA256:?}" "$3"
-EOF
-  chmod +x "$TMP/bin/curl" "$TMP/bin/sha256sum" "$TMP/bin/shasum"
-  export MOCK_MISE_ARCHIVE="$TMP/mise.tar.gz"
-  export MOCK_MISE_SHA256=54dc5f1a0de14bddf70a4d8273603647c140eedd8b9d083a8f73ca13a9a82f53
-  export MISE_DATA_DIR="$TMP/mise-data"
-  export PATH="$TMP/bin:/usr/bin:/bin"
-}
-
-mock_host() {
-  export MOCK_HOST_PLATFORM="$1"
-  cat > "$TMP/bin/uname" <<EOF
-#!/usr/bin/env bash
-if [[ "\$1" == -s ]]; then
-  [[ "$1" == linux/amd64 ]] && echo Linux || echo Darwin
-else
-  [[ "$1" == linux/amd64 ]] && echo x86_64 || echo arm64
+set -eu
+# Enforce the transport boundary on every request; never access the network.
+[[ "$1" == --disable && "$2" == --fail && "$3" == --silent && "$4" == --show-error && "$5" == --location ]]
+[[ "$6" == --globoff && "$7" == --proto && "$8" == '=https' && "$9" == --proto-redir && "${10}" == '=https' && "${11}" == --tlsv1.2 ]]
+url="${12}"
+[[ "${13}" == --output && $# == 14 && "$url" != *'#'* ]]
+printf '%s\n' "$url" >> "$MOCK_LOG"
+if [[ -n "${MOCK_FAIL_SUFFIX:-}" && "$url" == *"$MOCK_FAIL_SUFFIX" ]]; then
+  echo 'curl: fixture HTTP failure' >&2
+  exit 22
 fi
+case "$url" in
+  https://api.github.com/repos/buildkite/buildkite-gha/releases/latest) source=release.json ;;
+  https://github.com/buildkite/buildkite-gha/releases/download/*/checksums.txt) source=checksums.txt ;;
+  https://github.com/buildkite/buildkite-gha/releases/download/*/buildkite-gha_*.tar.gz) source=archive.tar.gz ;;
+  https://example.com/*) source=buildkite-gha ;;
+  *) exit 64 ;;
+esac
+cp "$FIXTURE/$source" "${14}"
 EOF
-  chmod +x "$TMP/bin/uname"
-}
-
-mock_source_resolution() {
-  export REAL_GIT="$(command -v git)"
-  cat > "$TMP/bin/git" <<'EOF'
+  cat > "$FIXTURE/bin/uname" <<'EOF'
 #!/usr/bin/env bash
-set -euo pipefail
-if [[ "$1" == check-ref-format ]]; then
-  exec "$REAL_GIT" "$@"
-fi
-[[ "$1" == ls-remote && "$2" == --exit-code && "$3" == https://github.com/buildkite/buildkite-gha.git ]]
-printf 'resolve=%s\n' "$*" >> "${MOCK_LOG:?}"
-printf '%s\n' "${MOCK_SOURCE_REFS:-}"
-exit "${MOCK_RESOLUTION_EXIT:-0}"
+if [[ "$1" == -s ]]; then echo "$MOCK_OS"; else echo "$MOCK_ARCH"; fi
 EOF
-  chmod +x "$TMP/bin/git"
+  chmod +x "$FIXTURE/bin/"*
+  export PATH="$FIXTURE/bin:$PATH"
 }
 
-teardown() { rm -rf "$TMP"; }
+checksums() {
+  local hash
+  hash="$(shasum -a 256 "$FIXTURE/archive.tar.gz")"
+  for asset in Linux_x86_64 Linux_arm64 Darwin_arm64; do
+    printf '%s  buildkite-gha_%s.tar.gz\n' "${hash%% *}" "$asset"
+  done > "$FIXTURE/checksums.txt"
+}
 
-@test "uses mise from PATH to select latest and invoke the hidden plugin command" {
-  mock_source_resolution
+assert_clean() {
+  [ -z "$(ls -A "$TMPDIR")" ]
+}
+
+@test "resolves latest once, verifies the release, and extracts only the executable privately" {
+  export TAR_OPTIONS='--checkpoint-action=exec=false'
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 0 ]
-  [[ "$output" == *"--- :github: Prepare workflows"* ]]
-  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
-  grep -Fx 'minimum-release-age=0s' "$MOCK_LOG"
-  grep -Fx 'github-cli-tokens=false' "$MOCK_LOG"
-  grep -Fx 'yes=1' "$MOCK_LOG"
-  grep -Fx 'quiet=1' "$MOCK_LOG"
-  [[ "$output" != *"mise github:buildkite/buildkite-gha installing"* ]]
-  grep -Fx "cwd=$PWD" "$MOCK_LOG"
+  [ "$(wc -l < "$MOCK_LOG")" -eq 3 ]
+  [ "$(grep -c '/releases/latest$' "$MOCK_LOG")" -eq 1 ]
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.107.1/buildkite-gha_Linux_x86_64.tar.gz' "$MOCK_LOG"
+  grep -Fx 'https://github.com/buildkite/buildkite-gha/releases/download/v0.107.1/checksums.txt' "$MOCK_LOG"
+  [ "$(cat "$FIXTURE/arguments")" = plugin ]
+  [ "$(cat "$FIXTURE/mode")" = 700 ]
+  ! grep -Fx LICENSE "$FIXTURE/files"
+  assert_clean
 }
 
-@test "passes an empty configuration object to buildkite-gha unchanged" {
-  export BUILDKITE_PLUGIN_CONFIGURATION='{}'
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
-  grep -Fx 'configuration={}' "$MOCK_LOG"
-}
-
-@test "passes selector-free runtime and behavioral options to buildkite-gha unchanged" {
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.35.1
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE=24h
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"version":"v0.35.1","minimum-release-age":"24h","experimental-runner-user":false,"runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}],"oidc":{"claims":["organization_id"],"subject-claim":"pipeline_id"}}'
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@0.35.1 -- buildkite-gha plugin' "$MOCK_LOG"
-  grep -Fx 'minimum-release-age=24h' "$MOCK_LOG"
-  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
-}
-
-@test "leaves ordinary selector-free failure to buildkite-gha" {
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.35.1
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"version":"v0.35.1","runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
-  export MOCK_IMPORTER_EXIT=2
-  export MOCK_IMPORTER_ERROR='buildkite-gha: plugin: workflow or workflows is required outside a GitHub Actions Pipeline Trigger build'
-  run "$REPO/hooks/command"
-  [ "$status" -eq 2 ]
-  [[ "$output" == *"$MOCK_IMPORTER_ERROR"* ]]
-  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
-}
-
-@test "keeps mise acquisition failures visible in quiet mode" {
-  export MOCK_MISE_ACQUISITION_FAILURE=1
-  run "$REPO/hooks/command"
-  [ "$status" -eq 42 ]
-  [[ "$output" == *"mise ERROR failed to download buildkite-gha release"* ]]
-  grep -Fx 'quiet=1' "$MOCK_LOG"
-}
-
-@test "passes exact versions and a configured minimum release age to mise" {
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=v0.9.0
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE=24h
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@0.9.0 -- buildkite-gha plugin' "$MOCK_LOG"
-  grep -Fx 'minimum-release-age=24h' "$MOCK_LOG"
-}
-
-@test "passes experimental-runner-user unchanged to a supported release" {
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.13.7
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/ci.yml","experimental-runner-user":true}'
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@0.13.7 -- buildkite-gha plugin' "$MOCK_LOG"
-  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
-}
-
-@test "passes an explicit workflow path array to buildkite-gha unchanged" {
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflows":[".github/workflows/ci.yml",".github/workflows/release.yml"],"runners":[{"runs-on":"ubuntu-latest","queue":"hosted"}]}'
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
-}
-
-@test "passes one explicit workflow path to buildkite-gha unchanged" {
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/ci.yml","future":{"nested":[true,3]}}'
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
-}
-
-@test "passes OIDC configuration to buildkite-gha unchanged" {
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/deploy.yml","oidc":{"claims":["organization_id"],"aws-session-tags":["organization_slug","pipeline_id"],"subject-claim":"pipeline_id"}}'
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
-}
-
-@test "passes experimental-runner-user to the native source importer" {
-  mock_source_resolution
-  commit=abcdef0123456789abcdef0123456789abcdef01
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflow":".github/workflows/ci.yml","experimental-runner-user":true}'
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 0 ]
-  [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 3 ]
-  for platform in linux/amd64 darwin/arm64 windows/amd64; do
-    [[ "$output" == *"building $platform runtime from buildkite-gha source commit $commit with Go 1.26.10"* ]]
-  done
-  [[ "$output" == *"running native linux/amd64 importer"* ]]
-  grep -E "^build=linux/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
-  grep -E "^build=darwin/arm64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
-  grep -E "^build=windows/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
-  grep -E '^runtime=/[^ ]+/go/bin/buildkite-gha plugin$' "$MOCK_LOG"
-  grep -Fx "runtime-configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
-  darwin_runtime="$(sed -n 's/^darwin-runtime=//p' "$MOCK_LOG")"
-  [[ "$darwin_runtime" == /*/go/bin/darwin_arm64/buildkite-gha ]]
-  grep -Fx 'runtime-root-mode=700' "$MOCK_LOG"
-  [ ! -e "$darwin_runtime" ]
-  windows_runtime="$(sed -n 's/^windows-runtime=//p' "$MOCK_LOG")"
-  [[ "$windows_runtime" == "${darwin_runtime%/darwin_arm64/*}/windows_amd64/buildkite-gha.exe" ]]
-  [ ! -e "$windows_runtime" ]
-  grep -Fx 'minimum-release-age=' "$MOCK_LOG"
-}
-
-@test "builds all runtimes and runs the native Darwin importer with Linux and Windows paths" {
-  mock_host darwin/arm64
-  commit=abcdef0123456789abcdef0123456789abcdef01
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$commit"
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [[ "$output" == *"running native darwin/arm64 importer"* ]]
-  grep -E "^build=windows/amd64:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
-  grep -E '^runtime=/[^ ]+/go/bin/buildkite-gha plugin$' "$MOCK_LOG"
-  linux_runtime="$(sed -n 's/^linux-runtime=//p' "$MOCK_LOG")"
-  [[ "$linux_runtime" == /*/go/bin/linux_amd64/buildkite-gha ]]
-  [ ! -e "$linux_runtime" ]
-  windows_runtime="$(sed -n 's/^windows-runtime=//p' "$MOCK_LOG")"
-  [[ "$windows_runtime" == "${linux_runtime%/linux_amd64/*}/windows_amd64/buildkite-gha.exe" ]]
-  [ ! -e "$windows_runtime" ]
-}
-
-@test "stops and removes source runtimes when a cross-build fails" {
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=abcdef0123456789abcdef0123456789abcdef01
-  for platform in darwin/arm64 windows/amd64; do
+@test "accepts exact version shorthand and prereleases without resolving latest" {
+  for version in 0.107.1 v0.107.1 v1.0.0-rc.1 1.0.0-rc.1+build.2; do
     : > "$MOCK_LOG"
-    export MOCK_BUILD_FAILURE_PLATFORM="$platform"
-    run "$REPO/hooks/command"
-    [ "$status" -eq 42 ] || { echo "$output"; false; }
-    ! grep -q '^runtime=' "$MOCK_LOG"
-    source_gopath="$(sed -n 's/^build=linux\/amd64:\([^:]*\):.*$/\1/p' "$MOCK_LOG")"
-    [ -n "$source_gopath" ]
-    [ ! -e "${source_gopath%/*}" ]
-  done
-}
-
-@test "resolves a branch once and passes server-selected configuration without runner overrides" {
-  mock_source_resolution
-  commit=1234567890abcdef1234567890abcdef12345678
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=feature/source-testing
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"source-ref":"feature/source-testing"}'
-  export MOCK_SOURCE_REFS="$commit refs/heads/feature/source-testing"
-  for host in linux/amd64 darwin/arm64; do
-    : > "$MOCK_LOG"
-    mock_host "$host"
+    export BUILDKITE_PLUGIN_CONFIGURATION="{\"version\":\"$version\"}"
     run "$REPO/hooks/command"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
-    [[ "$output" == *"resolved source ref 'feature/source-testing' to $commit"* ]]
-    [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 1 ]
-    grep -Fx 'resolve=ls-remote --exit-code https://github.com/buildkite/buildkite-gha.git refs/heads/feature/source-testing refs/tags/feature/source-testing refs/tags/feature/source-testing^{}' "$MOCK_LOG"
-    [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 3 ]
-    for platform in linux/amd64 darwin/arm64 windows/amd64; do
-      grep -E "^build=$platform:/[^:]+:/[^:]+:github.com/buildkite/buildkite-gha/cmd/buildkite-gha@$commit$" "$MOCK_LOG"
-    done
-    grep -Fx "runtime-configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
+    [ "$(wc -l < "$MOCK_LOG")" -eq 2 ]
+    grep -Fx "https://github.com/buildkite/buildkite-gha/releases/download/v${version#v}/checksums.txt" "$MOCK_LOG"
+    assert_clean
   done
 }
 
-@test "resolves lightweight and annotated tags to the commit rather than the tag object" {
-  mock_source_resolution
-  commit=1234567890abcdef1234567890abcdef12345678
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=v0.71.1
-  for refs in "$commit refs/tags/v0.71.1" "abcdef0123456789abcdef0123456789abcdef01 refs/tags/v0.71.1
-$commit refs/tags/v0.71.1^{}"; do
+@test "selects Linux arm64 and native macOS arm64 release assets" {
+  for host in Linux:aarch64:Linux_arm64 Darwin:arm64:Darwin_arm64; do
+    IFS=: read -r MOCK_OS MOCK_ARCH asset <<< "$host"
     : > "$MOCK_LOG"
-    export MOCK_SOURCE_REFS="$refs"
     run "$REPO/hooks/command"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
-    [ "$(grep -c '^resolve=' "$MOCK_LOG")" -eq 1 ]
-    [ "$(grep -c '^build=' "$MOCK_LOG")" -eq 3 ]
-    [ "$(grep -c "^build=.*@$commit$" "$MOCK_LOG")" -eq 3 ]
+    grep -Fx "https://github.com/buildkite/buildkite-gha/releases/download/v0.107.1/buildkite-gha_$asset.tar.gz" "$MOCK_LOG"
+    assert_clean
   done
 }
 
-@test "stops before setup when source resolution fails or is ambiguous" {
-  mock_source_resolution
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF=missing
-  export MOCK_RESOLUTION_EXIT=2
-  run "$REPO/hooks/command"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"could not resolve buildkite-gha source ref 'missing'"* ]]
-  [[ "$output" != *"Prepare workflows"* ]]
-  [ "$(grep -c '^mise=' "$MOCK_LOG")" -eq 0 ]
-
-  export MOCK_RESOLUTION_EXIT=0
-  export MOCK_SOURCE_REFS='abcdef0123456789abcdef0123456789abcdef01 refs/heads/missing
-1234567890abcdef1234567890abcdef12345678 refs/tags/missing'
-  run "$REPO/hooks/command"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"matches both a branch and tag"* ]]
-  [[ "$output" != *"Prepare workflows"* ]]
-  [ "$(grep -c '^mise=' "$MOCK_LOG")" -eq 0 ]
-
-  for refs in 'not-a-commit refs/heads/missing' 'abcdef0123456789abcdef0123456789abcdef01 refs/heads/prefix/refs/heads/missing'; do
-    export MOCK_SOURCE_REFS="$refs"
-    run "$REPO/hooks/command"
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"did not resolve to a full commit"* ]]
-    [[ "$output" != *"Prepare workflows"* ]]
-    [ "$(grep -c '^mise=' "$MOCK_LOG")" -eq 0 ]
-  done
-}
-
-@test "rejects invalid or ambiguous source configuration" {
-  mock_source_resolution
-  for ref in 'bad ref' 'main*' '../main' 'main^{commit}'; do
-    export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$ref"
-    run "$REPO/hooks/command"
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"expected a full lowercase 40-character commit, branch, or tag"* ]]
-    [ ! -s "$MOCK_LOG" ]
-  done
-
-  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=0.9.0
-  for ref in abcdef0123456789abcdef0123456789abcdef01 main; do
-    export BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF="$ref"
-    run "$REPO/hooks/command"
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"version and source-ref are mutually exclusive"* ]]
-    [ ! -s "$MOCK_LOG" ]
-  done
-}
-
-@test "rejects versions outside the stable plugin contract" {
-  for version in 0.8.0 0.9.0-rc.1 01.2.3 main ABCDEF0123456789ABCDEF0123456789ABCDEF01 abcdef0123456789abcdef0123456789abcdef0 '1.0.0/../../bad'; do
-    : > "$MOCK_LOG"
-    export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION="$version"
-    run "$REPO/hooks/command"
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"expected latest or an exact stable release from 0.9.0 onward"* ]]
-    [ ! -s "$MOCK_LOG" ]
-  done
-}
-
-@test "isolates mise settings while preserving an explicit data directory" {
-  export MISE_DATA_DIR="$TMP/trusted-mise-data"
-  export MISE_MINIMUM_RELEASE_AGE_EXCLUDES='github:*'
-  export MISE_PRERELEASES=1
-  export MISE_URL_REPLACEMENTS='https://github.com|https://example.test'
-  export MISE_INSTALLS_DIR="$TMP/untrusted-installs"
-  export MISE_GITHUB_CREDENTIAL_COMMAND='echo credential-command-ran'
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx 'prereleases=' "$MOCK_LOG"
-  grep -Fx 'url-replacements=' "$MOCK_LOG"
-  grep -Fx 'installs-dir=' "$MOCK_LOG"
-  grep -Fx 'credential-command=' "$MOCK_LOG"
-}
-
-@test "leaves plugin parsing and Buildkite context normalization to buildkite-gha" {
-  export BUILDKITE_COMMIT=HEAD
-  export BUILDKITE_GROUP_LABEL="GitHub Actions / checks"
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
-  grep -Fx 'commit=HEAD' "$MOCK_LOG"
-  grep -Fx 'group=GitHub Actions / checks' "$MOCK_LOG"
-
-  unset BUILDKITE_PLUGIN_CONFIGURATION
-  run "$REPO/hooks/command"
-  [ "$status" -eq 2 ]
-  [[ "$output" == *"BUILDKITE_PLUGIN_CONFIGURATION is required"* ]]
-}
-
-@test "passes future behavioral configuration through unchanged" {
-  export BUILDKITE_PLUGIN_CONFIGURATION='{"workflows":["ci.yml"],"future":{"nested":[true,3]},"runners":"validated-by-buildkite-gha"}'
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -Fx "configuration=$BUILDKITE_PLUGIN_CONFIGURATION" "$MOCK_LOG"
-}
-
-@test "preserves buildkite-gha fail-closed configuration validation" {
-  export MOCK_IMPORTER_EXIT=2
-  for configuration in \
-    '{"workflow":"ci.yml","unknown":true}' \
-    '{"workflow":"ci.yml","experimental-runner-user":"true"}'; do
-    : > "$MOCK_LOG"
-    export BUILDKITE_PLUGIN_CONFIGURATION="$configuration"
-    run "$REPO/hooks/command"
-    [ "$status" -eq 2 ] || { echo "$output"; false; }
-    grep -Fx "configuration=$configuration" "$MOCK_LOG"
-  done
-}
-
-@test "ignores legacy aliases and propagates buildkite-gha failures" {
-  export BUILDKITE_PLUGIN__VERSION=0.9.0
-  export BUILDKITE_PLUGIN__MINIMUM_RELEASE_AGE=7d
+@test "passes configuration byte-for-byte and preserves runtime exit status" {
+  export BUILDKITE_PLUGIN_CONFIGURATION=' {"version":"0.107.1", "workflows":["ci.yml"],"runners":"CLI validates this","future":{"nested":[true,3]}} '
+  export BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION=ignored-flattened-value
   export MOCK_IMPORTER_EXIT=37
   run "$REPO/hooks/command"
-  [ "$status" -eq 37 ] || { echo "$output"; false; }
-  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
-  grep -Fx 'minimum-release-age=0s' "$MOCK_LOG"
+  [ "$status" -eq 37 ]
+  [ "$(cat "$FIXTURE/configuration")" = "$BUILDKITE_PLUGIN_CONFIGURATION" ]
+  assert_clean
 }
 
-@test "rejects unsupported platforms before invoking mise" {
-  for platform in linux/arm64 darwin/amd64; do
+@test "downloads a raw executable without release lookup or archives" {
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"binary":"https://example.com/custom?build=123"}'
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ "$(cat "$MOCK_LOG")" = 'https://example.com/custom?build=123' ]
+  [ "$(cat "$FIXTURE/files")" = buildkite-gha ]
+  [ "$(cat "$FIXTURE/configuration")" = "$BUILDKITE_PLUGIN_CONFIGURATION" ]
+  assert_clean
+}
+
+@test "downloads only the importer from the platform map and keeps counterpart URLs unchanged" {
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"binary":{"linux/amd64":"https://example.com/linux","linux/arm64":"https://example.com/arm","darwin/arm64":"https://example.com/mac","windows/amd64":"https://example.com/windows.exe"}}'
+  for host in Linux:x86_64:linux Linux:arm64:arm Darwin:arm64:mac; do
+    IFS=: read -r MOCK_OS MOCK_ARCH name <<< "$host"
     : > "$MOCK_LOG"
-    if [[ "$platform" == linux/arm64 ]]; then
-      cat > "$TMP/bin/uname" <<'EOF'
-#!/usr/bin/env bash
-[[ "$1" == -s ]] && echo Linux || echo arm64
-EOF
-    else
-      cat > "$TMP/bin/uname" <<'EOF'
-#!/usr/bin/env bash
-[[ "$1" == -s ]] && echo Darwin || echo x86_64
-EOF
-    fi
-    chmod +x "$TMP/bin/uname"
     run "$REPO/hooks/command"
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"only Linux amd64 and Darwin arm64 are supported"* ]]
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+    [ "$(cat "$MOCK_LOG")" = "https://example.com/$name" ]
+    [ "$(cat "$FIXTURE/configuration")" = "$BUILDKITE_PLUGIN_CONFIGURATION" ]
+    assert_clean
+  done
+}
+
+@test "verifies raw executable checksums with either hex case before invoking" {
+  hash="$(shasum -a 256 "$FIXTURE/buildkite-gha")"
+  for hash in "${hash%% *}" "$(printf '%s' "${hash%% *}" | tr 'a-f' 'A-F')"; do
+    for MOCK_OS in Linux Darwin; do
+      [[ "$MOCK_OS" == Linux ]] && MOCK_ARCH=x86_64 || MOCK_ARCH=arm64
+      export BUILDKITE_PLUGIN_CONFIGURATION="{\"binary\":\"https://example.com/custom#sha256=$hash\"}"
+      : > "$MOCK_LOG"
+      run "$REPO/hooks/command"
+      [ "$status" -eq 0 ] || { echo "$output"; false; }
+      [ "$(cat "$MOCK_LOG")" = https://example.com/custom ]
+      [ "$(cat "$FIXTURE/configuration")" = "$BUILDKITE_PLUGIN_CONFIGURATION" ]
+      assert_clean
+    done
+  done
+}
+
+@test "never invokes an executable with a wrong checksum" {
+  export BUILDKITE_PLUGIN_CONFIGURATION='{"binary":{"linux/amd64":"https://example.com/custom#sha256=0000000000000000000000000000000000000000000000000000000000000000"}}'
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"binary checksum verification failed"* ]]
+  [ ! -e "$FIXTURE/arguments" ]
+  assert_clean
+}
+
+@test "rejects malformed URLs, fragments, maps, conflicting and retired acquisition options before download" {
+  for configuration in \
+    '{"version":"latest","binary":"https://example.com/custom"}' \
+    '{"source-ref":"main"}' '{"minimum-release-age":"0s"}' \
+    '{"binary":null}' '{"binary":{}}' '{"binary":[]}' \
+    '{"binary":{"darwin/arm64":"https://example.com/mac"}}' \
+    '{"binary":{"linux/amd64":"https://example.com/linux","windows/arm64":"https://example.com/windows"}}' \
+    '{"binary":{"linux/amd64":"https://example.com/linux","windows/amd64":"http://example.com/windows"}}' \
+    '{"binary":"http://example.com/custom"}' '{"binary":"/tmp/custom"}' \
+    '{"binary":"https://user:password@example.com/custom"}' \
+    '{"binary":"https://example.com/custom\u0000"}' \
+    '{"binary":"https://example.com/custom#"}' \
+    '{"binary":"https://example.com/custom#sha256=abc"}' \
+    '{"binary":"https://example.com/custom#sha512=abc"}' \
+    '{"binary":"https://example.com/custom#sha256=0000000000000000000000000000000000000000000000000000000000000000#sha256=0000000000000000000000000000000000000000000000000000000000000000"}'; do
+    export BUILDKITE_PLUGIN_CONFIGURATION="$configuration"
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ] || { echo "$configuration"; false; }
+    [ ! -s "$MOCK_LOG" ]
+    [ ! -e "$FIXTURE/arguments" ]
+    assert_clean
+  done
+}
+
+@test "rejects invalid configuration JSON, source refs and inexact versions" {
+  for configuration in '' 'not-json' '[]' 'null' '{} {}' \
+    '{"version":null}' '{"version":1}' '{"version":""}' '{"version":"main"}' \
+    '{"version":"v1.2.3\n"}' '{"version":"v1.2.3\u0000"}' \
+    '{"version":"01.2.3"}' '{"version":"1.2"}' '{"version":"1.2.3-01"}' \
+    '{"version":"1.2.3/../../bad"}'; do
+    export BUILDKITE_PLUGIN_CONFIGURATION="$configuration"
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ] || { echo "$configuration"; false; }
     [ ! -s "$MOCK_LOG" ]
   done
 }
 
-@test "installs a pinned verified mise when it is not on PATH and reuses it" {
-  prepare_bootstrap
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [[ "$output" == *"installing mise 2026.10.17"* ]]
-  grep -F 'curl=--disable --fail --silent --show-error --location --proto =https --proto-redir =https --tlsv1.2 https://github.com/jdx/mise/releases/download/v2026.10.17/mise-v2026.10.17-linux-x64-musl.tar.gz --output ' "$MOCK_LOG"
-  grep -F 'sha256sum=' "$MOCK_LOG"
-  [ -x "$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.10.17/linux-amd64/mise" ]
-  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
-
-  : > "$MOCK_LOG"
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  ! grep -q '^curl=' "$MOCK_LOG"
-  grep -Fx 'mise=--no-config exec github:buildkite/buildkite-gha@latest -- buildkite-gha plugin' "$MOCK_LOG"
-}
-
-@test "installs the pinned macOS arm64 mise asset with its platform checksum" {
-  prepare_bootstrap
-  mock_host darwin/arm64
-  export MOCK_MISE_SHA256=d7c50c1683524a764260986ccc9c41c0de5e1fcd491714b5640b657b76781af6
-  run "$REPO/hooks/command"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  grep -F 'https://github.com/jdx/mise/releases/download/v2026.10.17/mise-v2026.10.17-macos-arm64.tar.gz --output ' "$MOCK_LOG"
-  grep -E '^shasum=-a 256 ' "$MOCK_LOG"
-  ! grep -q '^sha256sum=' "$MOCK_LOG"
-  [ -x "$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.10.17/darwin-arm64/mise" ]
-}
-
-@test "replaces an old mise and stops when bootstrap verification fails" {
-  prepare_bootstrap
-  write_mise "$TMP/bin/mise" 2025.1.0
-  export MOCK_MISE_SHA256=0000000000000000000000000000000000000000000000000000000000000000
-  run "$REPO/hooks/command"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"mise on PATH is older than 2026.10.17"* ]]
-  [[ "$output" == *"mise release archive checksum verification failed"* ]]
-  ! grep -q '^mise=--no-config exec ' "$MOCK_LOG"
-}
-
-@test "accepts the qualified mise minimum and later versions only" {
-  for version in 2026.10.17 2026.10.18 2026.11.0 2027.1.0; do
-    write_mise "$TMP/bin/mise" "$version"
-    run bash -c 'source "$1/lib/mise.sh"; mise_is_compatible "$2"' _ "$REPO" "$TMP/bin/mise"
-    [ "$status" -eq 0 ] || { echo "$version: $output"; false; }
-  done
-  for version in 2025.12.99 2026.5.12 2026.8.4 2026.9.99 2026.10.15 2026.10.16; do
-    write_mise "$TMP/bin/mise" "$version"
-    run bash -c 'source "$1/lib/mise.sh"; mise_is_compatible "$2"' _ "$REPO" "$TMP/bin/mise"
-    [ "$status" -ne 0 ]
-  done
-}
-
-@test "replaces unremediated PATH and managed mise copies before execution" {
-  prepare_bootstrap
-  cached="$MISE_DATA_DIR/github-actions-buildkite-plugin/mise/2026.10.17/linux-amd64/mise"
-  mkdir -p "$(dirname "$cached")"
-  for version in 2026.5.12 2026.8.4 2026.10.15 2026.10.16; do
-    : > "$MOCK_LOG"
-    write_mise "$TMP/bin/mise" "$version"
-    write_mise "$cached" "$version"
+@test "rejects unsupported importer platforms including Windows" {
+  for host in Darwin:x86_64 Windows_NT:x86_64 Linux:riscv64; do
+    IFS=: read -r MOCK_OS MOCK_ARCH <<< "$host"
     run "$REPO/hooks/command"
-    [ "$status" -eq 0 ] || { echo "$output"; false; }
-    [[ "$output" == *"mise on PATH is older than 2026.10.17"* ]]
-    [[ "$output" == *"installing mise 2026.10.17"* ]]
-    grep -q '^curl=' "$MOCK_LOG"
-    run "$cached" version
-    [[ "$output" == "2026.10.17 linux-x64" ]]
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"unsupported importer platform"* ]]
+    [ ! -s "$MOCK_LOG" ]
+  done
+}
+
+@test "fails closed on missing or invalid latest tag metadata" {
+  for response in '{}' '{"tag_name":"main"}' '{"tag_name":"v1.2.3/../../bad"}' 'not-json'; do
+    printf '%s' "$response" > "$FIXTURE/release.json"
+    : > "$MOCK_LOG"
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ]
+    [ "$(wc -l < "$MOCK_LOG")" -eq 1 ]
+    [ ! -e "$FIXTURE/arguments" ]
+    assert_clean
+  done
+}
+
+@test "preserves curl failure and cleans partial downloads at every acquisition stage" {
+  for MOCK_FAIL_SUFFIX in /latest .tar.gz checksums.txt /custom; do
+    export MOCK_FAIL_SUFFIX
+    [[ "$MOCK_FAIL_SUFFIX" == /custom ]] && export BUILDKITE_PLUGIN_CONFIGURATION='{"binary":"https://example.com/custom"}'
+    run "$REPO/hooks/command"
+    [ "$status" -eq 22 ]
+    [[ "$output" == *"curl: fixture HTTP failure"* ]]
+    [ ! -e "$FIXTURE/arguments" ]
+    assert_clean
+  done
+}
+
+@test "rejects missing, duplicate and incorrect release checksums without invoking" {
+  for failure in missing duplicate mismatch; do
+    checksums
+    case "$failure" in
+      missing) : > "$FIXTURE/checksums.txt" ;;
+      duplicate) head -n 1 "$FIXTURE/checksums.txt" >> "$FIXTURE/checksums.txt" ;;
+      mismatch) printf 'tampering' >> "$FIXTURE/archive.tar.gz" ;;
+    esac
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *checksum* ]]
+    [ ! -e "$FIXTURE/arguments" ]
+    assert_clean
+  done
+}
+
+@test "rejects archives with missing, linked, or duplicate executable members" {
+  for failure in missing symlink hardlink duplicate; do
+    case "$failure" in
+      missing) tar -czf "$FIXTURE/archive.tar.gz" -C "$FIXTURE" LICENSE ;;
+      symlink)
+        rm "$FIXTURE/buildkite-gha"
+        ln -s LICENSE "$FIXTURE/buildkite-gha"
+        tar -czf "$FIXTURE/archive.tar.gz" -C "$FIXTURE" buildkite-gha ;;
+      hardlink)
+        rm "$FIXTURE/buildkite-gha"
+        ln "$FIXTURE/LICENSE" "$FIXTURE/buildkite-gha"
+        tar -czf "$FIXTURE/archive.tar.gz" -C "$FIXTURE" LICENSE buildkite-gha ;;
+      duplicate) tar -czf "$FIXTURE/archive.tar.gz" -C "$FIXTURE" buildkite-gha buildkite-gha ;;
+    esac
+    checksums
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ] || { echo "$failure: $output"; false; }
+    [ ! -e "$FIXTURE/arguments" ]
+    assert_clean
   done
 }

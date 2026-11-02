@@ -2,122 +2,103 @@
 set -euo pipefail
 umask 077
 
-PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-mise_data_dir_override="${MISE_DATA_DIR:-}"
-for variable in "${!MISE_@}"; do
-  unset "$variable"
-done
-if [[ -n "$mise_data_dir_override" ]]; then
-  export MISE_DATA_DIR="$mise_data_dir_override"
-fi
-# Path is resolved from this hook at runtime.
-# shellcheck disable=SC1091
-. "${PLUGIN_ROOT}/lib/mise.sh"
+error() { echo "github-actions plugin: $*" >&2; exit 1; }
+download() {
+  curl --disable --fail --silent --show-error --location --globoff \
+    --proto '=https' --proto-redir '=https' --tlsv1.2 "$1" --output "$2"
+}
 
-configured_version="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_VERSION:-}"
-source_ref="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_SOURCE_REF:-}"
-minimum_release_age="${BUILDKITE_PLUGIN_GITHUB_ACTIONS_MINIMUM_RELEASE_AGE:-0s}"
-
-if [[ -n "$source_ref" && -n "$configured_version" ]]; then
-  echo "github-actions plugin: version and source-ref are mutually exclusive" >&2
-  exit 1
-fi
-if [[ -n "$source_ref" && ! "$source_ref" =~ ^[0-9a-f]{40}$ ]] &&
-  ! git check-ref-format "refs/heads/$source_ref"; then
-  echo "github-actions plugin: invalid buildkite-gha source ref '$source_ref'; expected a full lowercase 40-character commit, branch, or tag" >&2
-  exit 1
-fi
-
-configured_version="${configured_version:-latest}"
-configured_version="${configured_version#v}"
-if [[ "$configured_version" != latest ]]; then
-  if [[ "$configured_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] &&
-    (( BASH_REMATCH[1] > 0 || BASH_REMATCH[2] >= 9 )); then
-    :
-  else
-    echo "github-actions plugin: invalid CLI version '$configured_version'; expected latest or an exact stable release from 0.9.0 onward" >&2
-    exit 1
+command -v jq >/dev/null || error "required command 'jq' was not found"
+configuration="${BUILDKITE_PLUGIN_CONFIGURATION:?BUILDKITE_PLUGIN_CONFIGURATION is required}"
+jq -e -s 'length == 1 and (.[0] | type == "object")' <<< "$configuration" >/dev/null || error "configuration must be a JSON object"
+for retired in source-ref minimum-release-age; do
+  if jq -e --arg key "$retired" 'has($key)' <<< "$configuration" >/dev/null; then
+    error "'$retired' is no longer supported; use version or binary"
   fi
+done
+if jq -e 'has("version") and has("binary")' <<< "$configuration" >/dev/null; then
+  error "version and binary are mutually exclusive"
 fi
 
 host_os="$(uname -s)"
 host_arch="$(uname -m)"
 case "$host_os/$host_arch" in
-  Linux/x86_64|Linux/amd64)
-    host_platform=linux/amd64
-    ;;
-  Darwin/arm64|Darwin/aarch64)
-    host_platform=darwin/arm64
-    ;;
-  *)
-    echo "github-actions plugin: unsupported importer platform '$host_os/$host_arch'; only Linux amd64 and Darwin arm64 are supported" >&2
-    exit 1
-    ;;
+  Linux/x86_64|Linux/amd64) platform=linux/amd64; asset=buildkite-gha_Linux_x86_64.tar.gz ;;
+  Linux/arm64|Linux/aarch64) platform=linux/arm64; asset=buildkite-gha_Linux_arm64.tar.gz ;;
+  Darwin/arm64|Darwin/aarch64) platform=darwin/arm64; asset=buildkite-gha_Darwin_arm64.tar.gz ;;
+  *) error "unsupported importer platform '$host_os/$host_arch'; expected Linux amd64/arm64 or Darwin arm64" ;;
 esac
 
-if [[ -n "$source_ref" && ! "$source_ref" =~ ^[0-9a-f]{40}$ ]]; then
-  if ! remote_refs="$(git ls-remote --exit-code https://github.com/buildkite/buildkite-gha.git \
-    "refs/heads/$source_ref" "refs/tags/$source_ref" "refs/tags/$source_ref^{}")"; then
-    echo "github-actions plugin: could not resolve buildkite-gha source ref '$source_ref'" >&2
-    exit 1
-  fi
-  branch_commit='' tag_commit='' peeled_commit=''
-  while read -r commit ref; do
-    case "$ref" in
-      "refs/heads/$source_ref") branch_commit="$commit" ;;
-      "refs/tags/$source_ref") tag_commit="$commit" ;;
-      "refs/tags/$source_ref^{}") peeled_commit="$commit" ;;
-    esac
-  done <<< "$remote_refs"
-  if [[ -n "$branch_commit" && -n "$tag_commit" ]]; then
-    echo "github-actions plugin: source ref '$source_ref' matches both a branch and tag; use a full commit instead" >&2
-    exit 1
-  fi
-  resolved_commit="${branch_commit:-${peeled_commit:-$tag_commit}}"
-  if [[ ! "$resolved_commit" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "github-actions plugin: source ref '$source_ref' did not resolve to a full commit" >&2
-    exit 1
-  fi
-  echo "github-actions plugin: resolved source ref '$source_ref' to $resolved_commit" >&2
-  source_ref="$resolved_commit"
+binary_url=''
+if jq -e 'has("binary")' <<< "$configuration" >/dev/null; then
+  jq -e '
+    def url: type == "string" and test("^https://[^/@\\s?#]+([/?][^\\s#]*)?(#sha256=[0-9a-fA-F]{64})?$") and (test("[\u0000-\u0020\u007f]") | not);
+    .binary | if type == "object" then
+      length > 0 and all(to_entries[];
+        (.key == "linux/amd64" or .key == "linux/arm64" or .key == "darwin/arm64" or .key == "windows/amd64") and (.value | url))
+    else url end
+  ' <<< "$configuration" >/dev/null || error "binary must be an HTTPS executable URL or a map of supported platforms to HTTPS executable URLs"
+  binary_url="$(jq -r --arg platform "$platform" '.binary | if type == "string" then . else .[$platform] // empty end' <<< "$configuration")"
+  [[ -n "$binary_url" ]] || error "binary has no URL for importer platform '$platform'"
+else
+  version="$(jq -er 'if has("version") then .version | select(type == "string") | select(test("[\u0000-\u0020\u007f]") | not) else "latest" end' <<< "$configuration")" || error "version must be latest or an exact release tag"
+  # SemVer identifiers, including prereleases and build metadata; no source refs.
+  number='(0|[1-9][0-9]*)'
+  identifier='(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)'
+  release_pattern="^v?$number\.$number\.$number(-$identifier(\.$identifier)*)?(\+[0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*)?$"
+  [[ "$version" == latest || "$version" =~ $release_pattern ]] || error "version must be latest or an exact release tag"
 fi
+
+runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/buildkite-gha.XXXXXXXXXX")"
+trap 'rm -rf -- "$runtime_dir"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 echo "--- :github: Prepare workflows"
-
-setup_mise "$host_platform"
-export MISE_YES=1
-if [[ -n "$source_ref" ]]; then
-  runtime_dir="$(mktemp -d /tmp/buildkite-gha-source.XXXXXXXXXX)"
-  trap 'rm -rf -- "$runtime_dir"' EXIT
-  source_gopath="$runtime_dir/go"
-  source_mod_cache="$MISE_DATA_DIR/github-actions-buildkite-plugin/go-mod-cache"
-
-  for target in linux/amd64:LINUX darwin/arm64:DARWIN windows/amd64:WINDOWS; do
-    platform="${target%:*}"
-    runtime_environment="BUILDKITE_GHA_PLUGIN_DEV_${target##*:}_RUNTIME"
-    echo "github-actions plugin: building $platform runtime from buildkite-gha source commit $source_ref with Go 1.26.10" >&2
-    "$MISE_BIN" --no-config exec go@1.26.10 -- \
-      env -u GOBIN CGO_ENABLED=0 GOTOOLCHAIN=local GOOS="${platform%/*}" GOARCH="${platform#*/}" GOPATH="$source_gopath" GOMODCACHE="$source_mod_cache" \
-      go install -trimpath "github.com/buildkite/buildkite-gha/cmd/buildkite-gha@${source_ref}"
-
-    runtime_path="$source_gopath/bin"
-    if [[ "$platform" != "$host_platform" ]]; then
-      runtime_path+="/${platform/\//_}"
+if [[ -n "$binary_url" ]]; then
+  download "${binary_url%%#*}" "$runtime_dir/buildkite-gha"
+  if [[ "$binary_url" == *'#'* ]]; then
+    checksum="$(printf '%s' "${binary_url##*#sha256=}" | tr 'A-F' 'a-f')"
+    if [[ "$platform" == linux/* ]]; then
+      actual="$(sha256sum "$runtime_dir/buildkite-gha")"
+    else
+      actual="$(shasum -a 256 "$runtime_dir/buildkite-gha")"
     fi
-    runtime_path+="/buildkite-gha"
-    if [[ "$platform" == windows/* ]]; then
-      runtime_path+=".exe"
-    fi
-    export "$runtime_environment=$runtime_path"
-  done
-
-  echo "github-actions plugin: running native $host_platform importer" >&2
-  "$source_gopath/bin/buildkite-gha" plugin
+    [[ "${actual%% *}" == "$checksum" ]] || error "binary checksum verification failed"
+  fi
 else
-  export MISE_GITHUB_GH_CLI_TOKENS=false
-  export MISE_MINIMUM_RELEASE_AGE="$minimum_release_age"
-  export MISE_QUIET=1
-  exec "$MISE_BIN" --no-config exec \
-    "github:buildkite/buildkite-gha@${configured_version}" \
-    -- buildkite-gha plugin
+  if [[ "$version" == latest ]]; then
+    download https://api.github.com/repos/buildkite/buildkite-gha/releases/latest "$runtime_dir/release.json"
+    version="$(jq -er '.tag_name | select(type == "string") | select(test("[\u0000-\u0020\u007f]") | not)' "$runtime_dir/release.json")" || error "latest release response has no valid tag_name"
+    [[ "$version" =~ $release_pattern ]] || error "latest release response has an invalid tag_name"
+  else
+    version="v${version#v}"
+  fi
+  release_url="https://github.com/buildkite/buildkite-gha/releases/download/$version"
+  download "$release_url/$asset" "$runtime_dir/archive.tar.gz"
+  download "$release_url/checksums.txt" "$runtime_dir/checksums.txt"
+  checksum=''
+  while read -r hash filename extra; do
+    if [[ "$filename" == "$asset" && -z "$extra" ]]; then
+      [[ -z "$checksum" && "$hash" =~ ^[0-9a-fA-F]{64}$ ]] || error "invalid or duplicate release checksum"
+      checksum="$(printf '%s' "$hash" | tr 'A-F' 'a-f')"
+    fi
+  done < "$runtime_dir/checksums.txt"
+  [[ -n "$checksum" ]] || error "release checksum is missing for $asset"
+  if [[ "$platform" == linux/* ]]; then
+    actual="$(sha256sum "$runtime_dir/archive.tar.gz")"
+  else
+    actual="$(shasum -a 256 "$runtime_dir/archive.tar.gz")"
+  fi
+  [[ "${actual%% *}" == "$checksum" ]] || error "release archive checksum verification failed"
+
+  # Never extract archive paths to disk. Require one regular executable member,
+  # then stream only its contents into our private directory.
+  unset TAR_OPTIONS GZIP
+  member="$(tar -tvzf "$runtime_dir/archive.tar.gz" -- buildkite-gha)"
+  [[ "$member" == -* && "$member" != *$'\n'* ]] || error "release archive must contain one regular buildkite-gha executable"
+  tar -xOzf "$runtime_dir/archive.tar.gz" -- buildkite-gha > "$runtime_dir/buildkite-gha"
 fi
+[[ -s "$runtime_dir/buildkite-gha" ]] || error "downloaded executable is empty"
+chmod 0700 "$runtime_dir/buildkite-gha"
+"$runtime_dir/buildkite-gha" plugin
