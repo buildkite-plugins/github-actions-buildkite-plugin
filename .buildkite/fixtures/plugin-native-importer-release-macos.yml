@@ -1,0 +1,16 @@
+name: Plugin native importer macOS-only release smoke
+
+on:
+  push:
+
+jobs:
+  native-importer-macos-only:
+    name: Verify released native importer macOS-only graph
+    runs-on: macos-14
+    steps:
+      - name: Verify macOS runtime
+        shell: bash
+        run: |
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = macOS
+          test "$(uname -m)" = arm64

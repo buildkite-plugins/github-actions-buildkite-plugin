@@ -1,0 +1,28 @@
+name: Plugin native importer mixed release smoke
+
+on:
+  push:
+
+jobs:
+  native-importer-mixed-linux:
+    name: Verify released native importer mixed Linux job
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Linux runtime
+        shell: bash
+        run: |
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = Linux
+          test -d /opt/hostedtoolcache
+
+  native-importer-mixed-macos:
+    name: Verify released native importer Linux to macOS dependency
+    needs: native-importer-mixed-linux
+    runs-on: macos-14
+    steps:
+      - name: Verify macOS runtime
+        shell: bash
+        run: |
+          test "${GITHUB_ACTIONS:-}" = true
+          test "${RUNNER_OS:-}" = macOS
+          test "$(uname -m)" = arm64

@@ -98,7 +98,8 @@ steps:
           plugins:
             - github-actions#$$commit:
                 workflows:
-                  - .buildkite/fixtures/plugin-release-macos.yml
+                  # Distinct paths prevent step-key collisions with Linux importers.
+                  - .buildkite/fixtures/plugin-native-importer-release-macos.yml
                 version: 0.107.1
                 runners:
                   - runs-on: macos-14
@@ -113,7 +114,7 @@ steps:
           plugins:
             - github-actions#$$commit:
                 workflows:
-                  - .buildkite/fixtures/plugin-release-mixed.yml
+                  - .buildkite/fixtures/plugin-native-importer-release-mixed.yml
                 version: 0.107.1
                 experimental-runner-user: false
                 runners:
