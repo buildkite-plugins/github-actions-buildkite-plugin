@@ -5,7 +5,7 @@ steps:
       docker run --rm -t \
         -v "$$PWD:/plugin" \
         buildkite/plugin-tester:v4.3.0 \
-        bash -c 'apk add --no-cache git && bats tests'
+        bash -c 'apk add --no-cache jq perl-utils && bats tests'
   - label: ":lint-roller: Plugin lint"
     key: "plugin-lint"
     plugins:
@@ -18,7 +18,6 @@ steps:
       - shellcheck#v1.4.0:
           files:
             - hooks/*
-            - lib/*
   - label: ":pipeline: Load live plugin smoke"
     key: "live-plugin-smoke-loader"
     agents:
@@ -97,8 +96,9 @@ steps:
           retry:
             automatic: false
           plugins:
-            - github-actions#v0.11.0:
+            - github-actions#$$commit:
                 workflows:
+                  # Distinct paths prevent step-key collisions with Linux importers.
                   - .buildkite/fixtures/plugin-native-importer-release-macos.yml
                 version: 0.107.1
                 runners:
@@ -112,7 +112,7 @@ steps:
           retry:
             automatic: false
           plugins:
-            - github-actions#v0.11.0:
+            - github-actions#$$commit:
                 workflows:
                   - .buildkite/fixtures/plugin-native-importer-release-mixed.yml
                 version: 0.107.1
@@ -120,60 +120,6 @@ steps:
                 runners:
                   - runs-on: ubuntu-latest
                     queue: hosted
-                  - runs-on: macos-14
-                    queue: macos
-        - label: ":github: Live Linux source-ref smoke"
-          key: "live-linux-source-ref-smoke-importer"
-          agents:
-            queue: "hosted"
-          timeout_in_minutes: 20
-          retry:
-            automatic: false
-          env:
-            BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
-          plugins:
-            - github-actions#$$commit:
-                workflow: .github/workflows/plugin-source-smoke.yml
-                source-ref: e492fcadf9b93148e5797e8be89d11ad64a220be
-                experimental-runner-user: true
-                runners:
-                  - runs-on: ubuntu-latest
-                    queue: hosted
-        - label: ":github: Live mixed source-ref smoke"
-          key: "live-mixed-source-ref-smoke-importer"
-          agents:
-            queue: "hosted"
-          timeout_in_minutes: 20
-          retry:
-            automatic: false
-          env:
-            BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
-          plugins:
-            - github-actions#$$commit:
-                workflows:
-                  - .buildkite/fixtures/plugin-source-mixed.yml
-                source-ref: e492fcadf9b93148e5797e8be89d11ad64a220be
-                experimental-runner-user: false
-                runners:
-                  - runs-on: ubuntu-latest
-                    queue: hosted
-                  - runs-on: macos-14
-                    queue: macos
-        - label: ":github: Live macOS-only source-ref smoke"
-          key: "live-macos-source-ref-smoke-importer"
-          agents:
-            queue: "hosted"
-          timeout_in_minutes: 20
-          retry:
-            automatic: false
-          env:
-            BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
-          plugins:
-            - github-actions#$$commit:
-                workflows:
-                  - .buildkite/fixtures/plugin-source-macos.yml
-                source-ref: e492fcadf9b93148e5797e8be89d11ad64a220be
-                runners:
                   - runs-on: macos-14
                     queue: macos
       YAML
