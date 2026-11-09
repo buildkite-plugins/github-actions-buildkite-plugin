@@ -1,5 +1,47 @@
 # Development
 
+## Use a custom executable
+
+Build the CLI outside the plugin, then publish it at an HTTPS URL. Use `binary` to test that build instead of an official release. Don't combine `binary` with an explicit `version`, including `version: latest`.
+
+> [!IMPORTANT]
+> Use a CLI build that supports `binary` configuration. Older CLIs reject this property.
+
+Use a raw executable URL, not an archive, local path, or URL template. Prefer an immutable URL with a `#sha256=` fragment containing its 64-digit hexadecimal SHA256. The fragment is removed before download, and the executable bytes are verified before execution. Plain HTTPS URLs remain available for development; other fragments are rejected.
+
+```yaml
+plugins:
+  - github-actions#latest:
+      workflow: .github/workflows/ci.yml
+      binary: "https://example.com/buildkite-gha-linux-amd64#sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+```
+
+Replace the example URL and checksum with your executable's values. A single URL covers the importer platform only. For workflows that need other platforms, supply a map with the importer and each required counterpart:
+
+```yaml
+plugins:
+  - github-actions#latest:
+      workflow: .github/workflows/ci.yml
+      binary:
+        linux/amd64: https://example.com/buildkite-gha-linux-amd64
+        linux/arm64: https://example.com/buildkite-gha-linux-arm64
+        darwin/arm64: https://example.com/buildkite-gha-darwin-arm64
+        windows/amd64: https://example.com/buildkite-gha-windows-amd64.exe
+```
+
+Each map URL also accepts a checksum fragment. The plugin downloads only its importer executable and forwards the configuration unchanged. The companion CLI downloads and verifies counterparts only when needed, with no release fallback for a missing platform. Use matching builds across the map. Windows amd64 is a counterpart platform only.
+
+> [!WARNING]
+> Custom URLs select code that runs with the importer's authority. HTTPS protects transport, not publisher trust; a checksum pins bytes but does not establish who built them. Use trusted publishers and do not put credentials in URLs. URLs remain in pipeline configuration and may appear in errors.
+
+`source-ref` and `minimum-release-age` are retired and fail with an error. Use `binary` to test unreleased code and an exact `version` instead of delaying `latest`.
+
+## Binary acquisition
+
+`latest` resolves once through GitHub's releases API. The plugin downloads the selected platform's official archive and `checksums.txt` from that exact release, verifies SHA256, and extracts only the executable. It uses a private temporary directory, removes it on exit, and keeps no installer cache. It does not install mise or build Go source.
+
+The plugin validates acquisition properties only. All other options, including `workflow`, `workflows`, `runners`, and `oidc`, pass unchanged to the selected CLI for strict validation.
+
 ## Run local checks
 
 Install [mise](https://mise.jdx.dev/), then run:
