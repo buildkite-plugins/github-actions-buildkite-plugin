@@ -38,6 +38,8 @@ Each map URL also accepts a checksum fragment. The plugin downloads only its imp
 
 ## Binary acquisition
 
+For custom importers, use a Linux amd64/arm64 or native macOS arm64 agent with the dependencies in [`plugin.yml`](plugin.yml) and outbound HTTPS access to GitHub. Windows importers are not supported. The importer's `agents` configuration selects its queue; `runners` mappings select generated jobs, not the importer.
+
 `latest` resolves once through GitHub's releases API. The plugin downloads the selected platform's official archive and `checksums.txt` from that exact release, verifies SHA256, and extracts only the executable. It uses a private temporary directory, removes it on exit, and keeps no installer cache. It does not install mise or build Go source.
 
 The plugin validates acquisition properties only. All other options, including `workflow`, `workflows`, `runners`, and `oidc`, pass unchanged to the selected CLI for strict validation.

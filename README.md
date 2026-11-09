@@ -5,41 +5,35 @@ Run supported GitHub Actions workflows as native Buildkite Pipelines jobs using 
 > [!NOTE]
 > This integration is in public preview. See [Run GitHub Actions workflows](https://buildkite.com/docs/pipelines/migration/run-github-actions-workflows) for setup, compatibility, configuration, and security guidance. [Report issues](https://github.com/buildkite/buildkite-gha/issues) in the CLI repository.
 
-## Add the plugin
+## Usage
+
+[Create a Buildkite pipeline connected to your GitHub repository](https://buildkite.com/docs/pipelines/migration/run-github-actions-workflows#add-a-github-actions-workflow-to-a-pipeline-create-a-github-actions-pipeline) and your builds will automatically use this plugin to run supported workflows unchanged on Buildkite.
+
+Your new pipeline will have steps like:
 
 ```yaml
 steps:
   - label: ":github: GitHub Actions"
-    key: github-actions
-    agents:
-      queue: importer-linux
-    plugins:
-      - github-actions#latest:
-          workflow: .github/workflows/ci.yml
+    plugin: github-actions
 ```
 
-Leave `version` unset unless you need to pin a CLI release. By default, the plugin uses the latest stable CLI release.
+> You can add optional configuration if needed.
 
-The importer's `agents` configuration selects its queue. Configure a Linux amd64/arm64 or native macOS arm64 agent; Windows importers are not supported. `runners` mappings select generated jobs, not the importer.
+## Configuration
 
-The importer needs Bash, `curl`, `jq`, `tar`, `mktemp`, and `sha256sum` (Linux) or `shasum` (macOS), plus outbound HTTPS access to GitHub. See the product documentation for Buildkite Agent and generated-job requirements.
-
-## Pin a release when needed
-
-The ref after `github-actions#` selects the plugin: `github-actions#latest` follows the newest promoted stable plugin; an exact tag such as `github-actions#v0.14.0` pins the plugin. The separate `version` property pins the CLI:
+You can pin the plugin with an exact tag and the `buildkite-gha` runtime with `version`:
 
 ```yaml
-plugins:
-  - github-actions#latest:
-      workflow: .github/workflows/ci.yml
-      version: "0.107.1"
+steps:
+  - label: ":github: GitHub Actions"
+    plugin:
+      github-actions#v0.14.0:
+        version: v0.124.0
 ```
 
-`version` accepts `latest` or an exact release tag, with or without `v`, including prereleases. Remove `version` to resume following stable CLI releases.
+We recommend omitting both pins to follow the latest stable versions, especially during the preview. `version` also accepts `latest` or an exact release tag without the `v` prefix, including prereleases.
 
-## Configure workflow behavior
-
-See the [product documentation](https://buildkite.com/docs/pipelines/migration/run-github-actions-workflows) for workflow selection, runner mappings, OIDC, and supported options. If you pin an older CLI, check that it supports the options you use.
+Additional plugin configuration is passed to [the `buildkite-gha` runtime](https://github.com/buildkite/buildkite-gha). See [the documentation](https://buildkite.com/docs/pipelines/migration/run-github-actions-workflows) for supported options. If you pin an older runtime, check that it supports the options you use.
 
 > [!WARNING]
 > Generated jobs can run untrusted workflow and action code. Use whole-job isolation, clean machines, and no ambient protected credentials. Review the product's security guidance before enabling private repository access, secrets, or temporary GitHub tokens.
