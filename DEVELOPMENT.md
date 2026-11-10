@@ -82,7 +82,9 @@ The offline Bats suite tests the plugin boundary: acquisition configuration, pla
 
 ## CI smoke coverage
 
-[`.buildkite/pipeline.yml`](.buildkite/pipeline.yml) owns the live runtime pins. Every importer uses the current build's full plugin commit, including native macOS importers. The released-runtime smoke graphs cover:
+[`.buildkite/pipeline.yml`](.buildkite/pipeline.yml) defaults to the historical CLI pin `0.107.1` and the current build's full plugin commit, including native macOS importers. For a release compatibility check, set the build environment variable `PLUGIN_SMOKE_VERSION` to an exact stable CLI version or `latest`. Set `PLUGIN_SMOKE_REF` to an immutable plugin version or full commit to check the same workflows with an older plugin. Normal CI keeps the historical defaults.
+
+The released-runtime smoke graphs cover:
 
 - Linux default and explicit images with the dedicated `runner` user.
 - A Linux-to-macOS dependency and a macOS-only graph, imported from Linux.
