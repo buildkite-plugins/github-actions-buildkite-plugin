@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+original_umask="$(umask)"
 umask 077
 
 error() { echo "github-actions plugin: $*" >&2; exit 1; }
@@ -107,7 +108,27 @@ case "$host_os/$host_arch" in
 esac
 
 binary_url=''
-if jq -e 'has("binary")' <<< "$configuration" >/dev/null; then
+execution=false
+if jq -e 'has("run")' <<< "$configuration" >/dev/null; then
+  execution=true
+  jq -e '
+    def text: type == "string" and length > 0 and (test("[\u0000-\u001f\u007f]") | not);
+    def digest: type == "string" and test("^sha256:[0-9a-f]{64}$") and length == 71;
+    keys == ["run"] and (.run | type == "object" and
+      (keys - ["plan", "runtime", "hosted-tool-cache"] | length == 0) and
+      (.plan | type == "object" and
+        (keys == ["digest", "path"] or keys == ["digest", "producer"]) and
+        (.digest | digest) and
+        (if has("path") then .path | text else .producer | type == "string" and test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$") and length == 36 end)) and
+      (.runtime | type == "object" and keys == ["platform", "sha256", "url"] and
+        (.platform == "linux/amd64" or .platform == "linux/arm64") and
+        (.sha256 | type == "string" and test("^[0-9a-fA-F]{64}$") and length == 64) and
+        (.url | type == "string" and test("^https://[^/@\\s?#]+([/?][^\\s#]*)?$") and (test("[\u0000-\u0020\u007f]") | not))) and
+      (if has("hosted-tool-cache") then .["hosted-tool-cache"] | type == "boolean" else true end))
+  ' <<< "$configuration" >/dev/null || error "run requires a plan digest and path or producer, and a pinned Linux runtime platform, HTTPS URL and SHA256; importer options cannot be combined with run"
+  [[ "$(jq -r '.run.runtime.platform' <<< "$configuration")" == "$platform" ]] || error "runtime platform does not match '$platform'"
+  binary_url="$(jq -r '.run.runtime | .url + "#sha256=" + .sha256' <<< "$configuration")"
+elif jq -e 'has("binary")' <<< "$configuration" >/dev/null; then
   jq -e '
     def url: type == "string" and test("^https://[^/@\\s?#]+([/?][^\\s#]*)?(#sha256=[0-9a-fA-F]{64})?$") and (test("[\u0000-\u0020\u007f]") | not);
     .binary | if type == "object" then
@@ -132,7 +153,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 cache="$(cache_root)"
 
-echo "--- :github: Prepare workflows"
+if "$execution"; then
+  echo "--- :github: Prepare pinned runtime"
+else
+  echo "--- :github: Prepare workflows"
+fi
 if [[ -n "$binary_url" ]]; then
   unset BUILDKITE_GHA_PLUGIN_RELEASE
   if [[ "$binary_url" == *'#'* ]]; then
@@ -190,6 +215,34 @@ else
 fi
 [[ -s "$runtime_dir/buildkite-gha" ]] || error "downloaded executable is empty"
 chmod 0700 "$runtime_dir/buildkite-gha"
+if "$execution"; then
+  plan_digest="$(jq -r '.run.plan.digest' <<< "$configuration")"
+  producer="$(jq -r '.run.plan.producer // empty' <<< "$configuration")"
+  if [[ -n "$producer" ]]; then
+    plan_path=".buildkite-gha/plans/${plan_digest#sha256:}.json"
+    buildkite-agent artifact download "$plan_path" "$runtime_dir" --step "$producer"
+    mv -- "$runtime_dir/$plan_path" "$runtime_dir/plan.json"
+  else
+    cp -- "$(jq -r '.run.plan.path' <<< "$configuration")" "$runtime_dir/plan.json"
+  fi
+  [[ "$(sha256 "$runtime_dir/plan.json")" == "${plan_digest#sha256:}" ]] || error "plan checksum verification failed"
+  setup=()
+  if [[ "$(id -u)" != 0 ]]; then
+    [[ "$(id -un)" == runner ]] || error "runtime bootstrap must start as root or runner"
+    setup=(sudo -n --preserve-env --)
+  fi
+  hosted_tool_cache="$(jq -r '.run["hosted-tool-cache"] // false' <<< "$configuration")"
+  "${setup[@]}" bash "$(dirname "${BASH_SOURCE[0]}")/../lib/runner-setup" "$runtime_dir" "$hosted_tool_cache"
+  arguments=(run-job --plan "$runtime_dir/plan.json")
+  [[ -z "$producer" ]] || arguments+=(--artifact-producer "$producer")
+  [[ "$hosted_tool_cache" == false ]] || arguments+=(--hosted-tool-cache)
+  # Keep the job credentials and native tool PATH across sudo, just as the
+  # existing generated bootstrap does. The runtime still validates all bindings.
+  umask "$original_umask"
+  sudo -n --preserve-env --user runner -- env HOME=/home/runner TMPDIR=/tmp/buildkite-gha-runner PATH="$PATH" \
+    BUILDKITE_GHA_PLAN_DIGEST="$plan_digest" "$runtime_dir/buildkite-gha" "${arguments[@]}"
+  exit $?
+fi
 if [[ -z "${MISE_DATA_DIR:-}" && -n "$cache" ]]; then
   export MISE_DATA_DIR="$cache"
 fi

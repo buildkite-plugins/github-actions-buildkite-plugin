@@ -10,12 +10,59 @@ requirements:
   - tar (historical release archives)
 configuration:
   type: object
+  oneOf:
+    - not:
+        required: [run]
+    - required: [run]
+      maxProperties: 1
   not:
     anyOf:
       - required: [version, binary]
       - required: [source-ref]
       - required: [minimum-release-age]
   properties:
+    run:
+      description: Execute an existing plan with pinned runtime bytes; no importer or release resolution.
+      type: object
+      required: [plan, runtime]
+      additionalProperties: false
+      properties:
+        plan:
+          type: object
+          required: [digest]
+          additionalProperties: false
+          oneOf:
+            - required: [path]
+            - required: [producer]
+          properties:
+            digest:
+              type: string
+              pattern: '^sha256:[0-9a-f]{64}$'
+            path:
+              type: string
+              minLength: 1
+              description: Local plan file, copied and verified before use.
+            producer:
+              type: string
+              pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+              description: Exact Buildkite job UUID holding the content-addressed plan and event artifacts.
+        runtime:
+          type: object
+          required: [platform, url, sha256]
+          additionalProperties: false
+          properties:
+            platform:
+              enum: [linux/amd64, linux/arm64]
+            url:
+              type: string
+              pattern: '^https://[^/@\s?#]+([/?][^\s#]*)?$'
+            sha256:
+              type: string
+              pattern: '^[0-9a-fA-F]{64}$'
+        hosted-tool-cache:
+          type: boolean
+          default: false
+          description: Grant runner access to the existing /opt/hostedtoolcache and enable it in run-job.
     version:
       type: string
       default: latest
