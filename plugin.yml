@@ -5,9 +5,9 @@ requirements:
   - bash
   - curl
   - jq
-  - tar
   - sha256sum (Linux) or shasum (macOS)
   - mktemp
+  - tar (historical release archives)
 configuration:
   type: object
   not:
@@ -20,7 +20,7 @@ configuration:
       type: string
       default: latest
       pattern: '^(latest|v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(\+[0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*)?)$'
-      description: Latest stable or an exact buildkite-gha release, including prereleases.
+      description: Latest stable or an exact buildkite-gha release, including prereleases and historical archive releases.
     binary:
       description: HTTPS raw executable URL with optional SHA256 fragment, or URLs keyed by platform. Requires companion CLI support.
       oneOf:

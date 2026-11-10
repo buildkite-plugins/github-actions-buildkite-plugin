@@ -8,6 +8,74 @@ download() {
     --proto '=https' --proto-redir '=https' --tlsv1.2 "$1" --output "$2"
 }
 
+sha256() {
+  local result
+  if [[ "$platform" == linux/* ]]; then
+    result="$(sha256sum "$1")"
+  else
+    result="$(shasum -a 256 "$1")"
+  fi
+  printf '%s\n' "${result%% *}"
+}
+
+cache_root() {
+  local root
+  if [[ -n "${BUILDKITE_GHA_CACHE_DIR:-}" ]]; then
+    root="$BUILDKITE_GHA_CACHE_DIR"
+  elif [[ -n "${MISE_DATA_DIR:-}" ]]; then
+    root="$MISE_DATA_DIR/buildkite-gha"
+  elif [[ "${BUILDKITE_COMPUTE_TYPE:-}" == hosted && -w /cache/bkcache && -d /cache/bkcache ]]; then
+    root=/cache/bkcache/buildkite-gha
+  elif [[ -n "${BUILDKITE_AGENT_DATA_PATH:-}" ]]; then
+    root="$BUILDKITE_AGENT_DATA_PATH/cache/buildkite-gha"
+  elif [[ -n "${XDG_CACHE_HOME:-}" ]]; then
+    root="$XDG_CACHE_HOME/buildkite-gha"
+  elif [[ -n "${HOME:-}" ]]; then
+    root="$HOME/.cache/buildkite-gha"
+  fi
+  [[ "${root:-}" != /* ]] || printf '%s\n' "$root"
+}
+
+# Publish complete entries by rename so concurrent jobs cannot read partial writes.
+cache_write() {
+  local source="$1" cached="$2"
+  if [[ -n "$cached" ]]; then
+    (
+      mkdir -p -- "${cached%/*}" || exit
+      staged="$(mktemp "${cached%/*}/.download.XXXXXXXXXX")" || exit
+      trap 'rm -f -- "$staged"' EXIT
+      cp -- "$source" "$staged" && mv -f -- "$staged" "$cached"
+    ) || echo "github-actions plugin: could not write cache" >&2
+  fi
+}
+
+# Copy into the private run directory before verification and execution.
+download_verified() {
+  local source="$1" destination="$2" expected="$3" cached="$4" label="$5"
+  if [[ -n "$cached" && -f "$cached" && ! -L "$cached" ]] &&
+    cp -- "$cached" "$destination" && [[ "$(sha256 "$destination")" == "$expected" ]]; then
+    return
+  fi
+  download "$source" "$destination"
+  [[ "$(sha256 "$destination")" == "$expected" ]] || error "$label checksum verification failed"
+  cache_write "$destination" "$cached"
+}
+
+release_asset() (
+  local metadata="$1" tag
+  tag="$(jq -er '.tag_name | select(type == "string") | select(test("[\u0000-\u0020\u007f]") | not)' "$metadata")" || error "release response has no valid tag_name"
+  [[ "$tag" =~ $release_pattern ]] || error "release response has an invalid tag_name"
+  [[ "$version" == latest || "$tag" == "$version" ]] || error "release response tag does not match $version"
+  jq -ce --arg asset "$asset" --arg archive "$archive_asset" '
+    .assets as $assets |
+    [.assets[] | select(.name == $asset)] |
+    if length == 0 then [$assets[] | select(.name == $archive)] else . end |
+    if length == 1 then .[0] else error("missing or duplicate release asset") end |
+    select(.browser_download_url | type == "string" and test("^https://[^/@\\s?#]+([/?][^\\s#]*)?$") and (test("[\u0000-\u0020\u007f]") | not)) |
+    select(.digest | type == "string" and test("^sha256:[0-9a-fA-F]{64}$") and length == 71)
+  ' "$metadata" || error "release requires a unique $asset executable or historical $archive_asset with an HTTPS URL and SHA256 digest"
+)
+
 command -v jq >/dev/null || error "required command 'jq' was not found"
 configuration="${BUILDKITE_PLUGIN_CONFIGURATION:?BUILDKITE_PLUGIN_CONFIGURATION is required}"
 jq -e -s 'length == 1 and (.[0] | type == "object")' <<< "$configuration" >/dev/null || error "configuration must be a JSON object"
@@ -23,9 +91,9 @@ fi
 host_os="$(uname -s)"
 host_arch="$(uname -m)"
 case "$host_os/$host_arch" in
-  Linux/x86_64|Linux/amd64) platform=linux/amd64; asset=buildkite-gha_Linux_x86_64.tar.gz ;;
-  Linux/arm64|Linux/aarch64) platform=linux/arm64; asset=buildkite-gha_Linux_arm64.tar.gz ;;
-  Darwin/arm64|Darwin/aarch64) platform=darwin/arm64; asset=buildkite-gha_Darwin_arm64.tar.gz ;;
+  Linux/x86_64|Linux/amd64) platform=linux/amd64; asset=buildkite-gha_linux_x86_64; archive_asset=buildkite-gha_Linux_x86_64.tar.gz ;;
+  Linux/arm64|Linux/aarch64) platform=linux/arm64; asset=buildkite-gha_linux_arm64; archive_asset=buildkite-gha_Linux_arm64.tar.gz ;;
+  Darwin/arm64|Darwin/aarch64) platform=darwin/arm64; asset=buildkite-gha_darwin_arm64; archive_asset=buildkite-gha_Darwin_arm64.tar.gz ;;
   *) error "unsupported importer platform '$host_os/$host_arch'; expected Linux amd64/arm64 or Darwin arm64" ;;
 esac
 
@@ -53,51 +121,56 @@ runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/buildkite-gha.XXXXXXXXXX")"
 trap 'rm -rf -- "$runtime_dir"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+cache="$(cache_root)"
 
 echo "--- :github: Prepare workflows"
 if [[ -n "$binary_url" ]]; then
-  download "${binary_url%%#*}" "$runtime_dir/buildkite-gha"
+  unset BUILDKITE_GHA_PLUGIN_RELEASE
   if [[ "$binary_url" == *'#'* ]]; then
     checksum="$(printf '%s' "${binary_url##*#sha256=}" | tr 'A-F' 'a-f')"
-    if [[ "$platform" == linux/* ]]; then
-      actual="$(sha256sum "$runtime_dir/buildkite-gha")"
-    else
-      actual="$(shasum -a 256 "$runtime_dir/buildkite-gha")"
-    fi
-    [[ "${actual%% *}" == "$checksum" ]] || error "binary checksum verification failed"
+    download_verified "${binary_url%%#*}" "$runtime_dir/buildkite-gha" "$checksum" \
+      "${cache:+$cache/binaries/${platform//\//-}/$checksum}" binary
+  else
+    download "$binary_url" "$runtime_dir/buildkite-gha"
   fi
 else
   if [[ "$version" == latest ]]; then
-    download https://api.github.com/repos/buildkite/buildkite-gha/releases/latest "$runtime_dir/release.json"
-    version="$(jq -er '.tag_name | select(type == "string") | select(test("[\u0000-\u0020\u007f]") | not)' "$runtime_dir/release.json")" || error "latest release response has no valid tag_name"
-    [[ "$version" =~ $release_pattern ]] || error "latest release response has an invalid tag_name"
+    release_path=latest
   else
     version="v${version#v}"
+    release_path="tags/$version"
   fi
-  release_url="https://github.com/buildkite/buildkite-gha/releases/download/$version"
-  download "$release_url/$asset" "$runtime_dir/archive.tar.gz"
-  download "$release_url/checksums.txt" "$runtime_dir/checksums.txt"
-  checksum=''
-  while read -r hash filename extra; do
-    if [[ "$filename" == "$asset" && -z "$extra" ]]; then
-      [[ -z "$checksum" && "$hash" =~ ^[0-9a-fA-F]{64}$ ]] || error "invalid or duplicate release checksum"
-      checksum="$(printf '%s' "$hash" | tr 'A-F' 'a-f')"
-    fi
-  done < "$runtime_dir/checksums.txt"
-  [[ -n "$checksum" ]] || error "release checksum is missing for $asset"
-  if [[ "$platform" == linux/* ]]; then
-    actual="$(sha256sum "$runtime_dir/archive.tar.gz")"
+  metadata_cache="${cache:+$cache/releases/$release_path.json}"
+  selected=''
+  case "${BUILDKITE_CLEAN_CHECKOUT:-false}" in
+    1|t|T|TRUE|true|True) ;; # Match the agent's strconv.ParseBool true values.
+    *)
+      if [[ -n "$metadata_cache" && -f "$metadata_cache" && ! -L "$metadata_cache" ]]; then
+        modified="$(stat -c %Y "$metadata_cache" 2>/dev/null || stat -f %m "$metadata_cache" 2>/dev/null || echo 0)"
+        now="$(date +%s)"
+        if (( modified <= now && now - modified < 3600 )) && cp -- "$metadata_cache" "$runtime_dir/release.json"; then
+          selected="$(release_asset "$runtime_dir/release.json" 2>/dev/null)" || selected=''
+        fi
+      fi
+      ;;
+  esac
+  if [[ -z "$selected" ]]; then
+    download "https://api.github.com/repos/buildkite/buildkite-gha/releases/$release_path" "$runtime_dir/release.json"
+    selected="$(release_asset "$runtime_dir/release.json")"
+    cache_write "$runtime_dir/release.json" "$metadata_cache"
+  fi
+  binary_url="$(jq -r '.browser_download_url' <<< "$selected")"
+  checksum="$(jq -r '.digest | ltrimstr("sha256:") | ascii_downcase' <<< "$selected")"
+  BUILDKITE_GHA_PLUGIN_RELEASE="$(jq -c '{tag_name, assets: [.assets[] | {name, browser_download_url, digest}]}' "$runtime_dir/release.json")"
+  export BUILDKITE_GHA_PLUGIN_RELEASE
+  if [[ "$(jq -r '.name' <<< "$selected")" == "$archive_asset" ]]; then
+    download_verified "$binary_url" "$runtime_dir/release.tar.gz" "$checksum" \
+      "${cache:+$cache/archives/${platform//\//-}/$checksum}" 'release archive'
+    tar -xzOf "$runtime_dir/release.tar.gz" buildkite-gha > "$runtime_dir/buildkite-gha"
   else
-    actual="$(shasum -a 256 "$runtime_dir/archive.tar.gz")"
+    download_verified "$binary_url" "$runtime_dir/buildkite-gha" "$checksum" \
+      "${cache:+$cache/binaries/${platform//\//-}/$checksum}" 'release binary'
   fi
-  [[ "${actual%% *}" == "$checksum" ]] || error "release archive checksum verification failed"
-
-  # Never extract archive paths to disk. Require one regular executable member,
-  # then stream only its contents into our private directory.
-  unset TAR_OPTIONS GZIP
-  member="$(tar -tvzf "$runtime_dir/archive.tar.gz" -- buildkite-gha)"
-  [[ "$member" == -* && "$member" != *$'\n'* ]] || error "release archive must contain one regular buildkite-gha executable"
-  tar -xOzf "$runtime_dir/archive.tar.gz" -- buildkite-gha > "$runtime_dir/buildkite-gha"
 fi
 [[ -s "$runtime_dir/buildkite-gha" ]] || error "downloaded executable is empty"
 chmod 0700 "$runtime_dir/buildkite-gha"

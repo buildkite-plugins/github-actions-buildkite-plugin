@@ -40,7 +40,30 @@ Each map URL also accepts a checksum fragment. The plugin downloads only its imp
 
 For custom importers, use a Linux amd64/arm64 or native macOS arm64 agent with the dependencies in [`plugin.yml`](plugin.yml) and outbound HTTPS access to GitHub. Windows importers are not supported. The importer's `agents` configuration selects its queue; `runners` mappings select generated jobs, not the importer.
 
-`latest` resolves once through GitHub's releases API. The plugin downloads the selected platform's official archive and `checksums.txt` from that exact release, verifies SHA256, and extracts only the executable. It uses a private temporary directory, removes it on exit, and keeps no installer cache. It does not install mise or build Go source.
+The plugin caches GitHub release metadata for one hour, separately for `latest` and each exact tag. Cache hits do not extend this window, so `latest` can lag a new release by up to one hour. Expired or malformed metadata requires a successful fresh lookup; a failed refresh does not fall back to stale data. Concurrent cache misses can each make a request.
+
+The plugin validates the release tag, selected asset URL, and SHA256 digest on cache hits and fresh responses. It prefers the platform's raw executable and verifies its bytes against that digest. For historical releases without a raw asset, it verifies the release archive's API digest and extracts only `buildkite-gha`. Invalid raw metadata or bytes fail without falling back to an archive. It does not fetch `checksums.txt`, install mise, or build Go source.
+
+`BUILDKITE_CLEAN_CHECKOUT` values `1`, `t`, `T`, `true`, `TRUE`, and `True` force a fresh metadata lookup for that import and refresh the cache entry. False, empty, and unrecognized values do not bypass the cache. `BUILDKITE_GIT_CLEAN_FLAGS` does not affect caching. This plugin policy supplements the agent's checkout removal; it does not delete shared binary caches.
+
+The plugin passes the resolved release to the CLI in `BUILDKITE_GHA_PLUGIN_RELEASE`. CLIs with metadata-handoff support use it for counterpart selection without another API request. Historical CLIs retain their own counterpart acquisition. Custom binaries clear this internal environment variable.
+
+Official binaries and checksum-pinned custom binaries use a local cache keyed by platform and digest. Each invocation copies cached bytes into a private temporary directory and verifies them before execution. Missing or corrupt entries are downloaded and verified before replacing the cache entry. Plain custom URLs are downloaded each time. Custom URLs never use the release metadata cache. A warm release import makes no network requests for metadata or binaries until its metadata expires. Refreshing metadata does not download the binary again when its digest is unchanged.
+
+Historical releases cache the verified archive by platform and archive digest, then extract the executable into the private temporary directory on each invocation. Warm imports need no archive download. Historical release assets and exact version pins remain unchanged.
+
+The cache root is the first available setting below. Explicit paths must be absolute. If the cache cannot be written, the plugin still downloads and verifies the executable for that invocation.
+
+| Setting | Cache root |
+| --- | --- |
+| `BUILDKITE_GHA_CACHE_DIR` | The specified path |
+| `MISE_DATA_DIR` | `$MISE_DATA_DIR/buildkite-gha` (existing agent compatibility) |
+| Writable hosted-agent cache | `/cache/bkcache/buildkite-gha` |
+| `BUILDKITE_AGENT_DATA_PATH` | `$BUILDKITE_AGENT_DATA_PATH/cache/buildkite-gha` |
+| `XDG_CACHE_HOME` | `$XDG_CACHE_HOME/buildkite-gha` |
+| `HOME` | `$HOME/.cache/buildkite-gha` |
+
+Cache reuse requires persistent storage shared by the relevant invocations; separate ephemeral agents do not share it automatically. Keep the cache writable only by trusted importers, isolated from untrusted jobs: cached metadata supplies the expected binary digest. The private execution directory is removed on exit.
 
 The plugin validates acquisition properties only. All other options, including `workflow`, `workflows`, `runners`, and `oidc`, pass unchanged to the selected CLI for strict validation.
 
@@ -55,7 +78,7 @@ mise run check
 
 Mise manages contributor tools only, not importer installation. The importer dependencies are listed in [`plugin.yml`](plugin.yml).
 
-The offline Bats suite tests the plugin boundary: acquisition configuration, platform selection, HTTPS download policy, checksum verification, safe extraction, unchanged CLI configuration, exit status, and temporary-file cleanup. It uses real tar archives and hashes, with a fake download transport and a recording executable. Workflow behavior belongs in the CLI's tests, not simulated CLI implementations here. ShellCheck checks the hook; CI also runs the Buildkite plugin linter.
+The offline Bats suite tests the plugin boundary: acquisition configuration, platform selection, HTTPS download policy, API digest verification, cache reuse and repair, release metadata handoff, unchanged CLI configuration, exit status, and temporary-file cleanup. It uses real executable hashes, a fake download transport, and a recording executable. Workflow behavior belongs in the CLI's tests, not simulated CLI implementations here. ShellCheck checks the hook; CI also runs the Buildkite plugin linter.
 
 ## CI smoke coverage
 
