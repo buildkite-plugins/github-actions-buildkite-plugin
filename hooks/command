@@ -7,7 +7,7 @@ download() {
   local status=0 headers="$2.headers"
   curl --disable --fail --silent --show-error --location --globoff \
     --proto '=https' --proto-redir '=https' --tlsv1.2 "$1" --output "$2" \
-    --dump-header "$headers" || status=$?
+    --dump-header "$headers" "${@:3}" || status=$?
   if (( status != 0 )) && [[ -f "$headers" ]]; then
     echo "github-actions plugin: download failed (${2##*/})" >&2
     # Exclude cookies and signed redirect URLs from failure diagnostics.
@@ -164,7 +164,14 @@ else
       ;;
   esac
   if [[ -z "$selected" ]]; then
-    download "https://api.github.com/repos/buildkite/buildkite-gha/releases/$release_path" "$runtime_dir/release.json"
+    endpoint="${BUILDKITE_AGENT_ENDPOINT:-}"
+    jq -en --arg endpoint "$endpoint" '$endpoint | test("^https://[^/@\\s?#]+(/[^\\s?#]*)?$") and (test("[\u0000-\u0020\u007f]") | not)' >/dev/null || error "a valid HTTPS BUILDKITE_AGENT_ENDPOINT is required"
+    [[ "${BUILDKITE_JOB_ID:-}" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || error "a valid BUILDKITE_JOB_ID is required"
+    [[ -n "${BUILDKITE_AGENT_ACCESS_TOKEN:-}" && "$BUILDKITE_AGENT_ACCESS_TOKEN" != *$'\r'* && "$BUILDKITE_AGENT_ACCESS_TOKEN" != *$'\n'* ]] || error "BUILDKITE_AGENT_ACCESS_TOKEN is required and must not contain newlines"
+    printf 'Authorization: Token %s\n' "$BUILDKITE_AGENT_ACCESS_TOKEN" > "$runtime_dir/agent-headers"
+    download "${endpoint%/}/jobs/$BUILDKITE_JOB_ID/github-actions/releases/$release_path" "$runtime_dir/release.json" \
+      --header "@$runtime_dir/agent-headers" --max-redirs 0
+    rm -f -- "$runtime_dir/agent-headers"
     selected="$(release_asset "$runtime_dir/release.json")"
     cache_write "$runtime_dir/release.json" "$metadata_cache"
   fi

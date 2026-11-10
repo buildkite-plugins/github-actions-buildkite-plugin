@@ -38,13 +38,15 @@ Each map URL also accepts a checksum fragment. The plugin downloads only its imp
 
 ## Binary acquisition
 
-For custom importers, use a Linux amd64/arm64 or native macOS arm64 agent with the dependencies in [`plugin.yml`](plugin.yml) and outbound HTTPS access to GitHub. Windows importers are not supported. The importer's `agents` configuration selects its queue; `runners` mappings select generated jobs, not the importer.
+For custom importers, use a Linux amd64/arm64 or native macOS arm64 agent with the dependencies in [`plugin.yml`](plugin.yml) and outbound HTTPS access to Buildkite and GitHub. Windows importers are not supported. The importer's `agents` configuration selects its queue; `runners` mappings select generated jobs, not the importer.
 
-The plugin caches GitHub release metadata for one hour, separately for `latest` and each exact tag. Cache hits do not extend this window, so `latest` can lag a new release by up to one hour. Expired or malformed metadata requires a successful fresh lookup; a failed refresh does not fall back to stale data. Concurrent cache misses can each make a request.
+The plugin reads release metadata from the configured `BUILDKITE_AGENT_ENDPOINT` at `/jobs/<job-id>/github-actions/releases/latest` or `/jobs/<job-id>/github-actions/releases/tags/<tag>`. Like the existing runner, environment, and variable APIs, this requires the current job's `BUILDKITE_AGENT_ACCESS_TOKEN` and `BUILDKITE_JOB_ID`. The endpoint must use HTTPS. Buildkite caches published release metadata for one hour using server-side GitHub access. Binaries still download directly from GitHub. The plugin sends the job token only to the Agent API and does not follow metadata redirects. Endpoint failures stop acquisition without falling back to the anonymous API.
+
+The plugin also caches this metadata locally for one hour, separately for `latest` and each exact tag. Cache hits do not extend either window. The combined server and local caches can delay a new `latest` by about two hours. Agent API responses use `Cache-Control: no-store`; shared caching stays inside Rails. Expired or malformed local metadata requires a successful authenticated lookup; a failed refresh does not fall back to stale local data. Concurrent cold server misses can duplicate upstream requests, bounded by a shared limit of 30 per minute; expiry refreshes use a five-second race-condition window.
 
 The plugin validates the release tag, selected asset URL, and SHA256 digest on cache hits and fresh responses. It prefers the platform's raw executable and verifies its bytes against that digest. For historical releases without a raw asset, it verifies the release archive's API digest and extracts only `buildkite-gha`. Invalid raw metadata or bytes fail without falling back to an archive. It does not fetch `checksums.txt`, install mise, or build Go source.
 
-`BUILDKITE_CLEAN_CHECKOUT` values `1`, `t`, `T`, `true`, `TRUE`, and `True` force a fresh metadata lookup for that import and refresh the cache entry. False, empty, and unrecognized values do not bypass the cache. `BUILDKITE_GIT_CLEAN_FLAGS` does not affect caching. This plugin policy supplements the agent's checkout removal; it does not delete shared binary caches.
+`BUILDKITE_CLEAN_CHECKOUT` values `1`, `t`, `T`, `true`, `TRUE`, and `True` bypass local metadata for that import and refresh the cache entry from Buildkite. They do not bypass Buildkite's shared cache. False, empty, and unrecognized values do not bypass the cache. `BUILDKITE_GIT_CLEAN_FLAGS` does not affect caching. This plugin policy supplements the agent's checkout removal; it does not delete shared binary caches.
 
 The plugin passes the resolved release to the CLI in `BUILDKITE_GHA_PLUGIN_RELEASE`. CLIs with metadata-handoff support use it for counterpart selection without another API request. Historical CLIs retain their own counterpart acquisition. Custom binaries clear this internal environment variable.
 
@@ -103,6 +105,7 @@ mise exec -- gh auth setup-git
 
 Before tagging:
 
+1. Deploy and verify the Buildkite release-metadata endpoint before publishing a plugin that uses it. Keep the endpoint available after promotion, including for retries with pinned plugin versions.
 1. Confirm the recommended CLI has a public release and the documented behavior is shipped. Do not advertise custom-binary support until its companion CLI support ships.
 1. Review the current product compatibility and security documentation.
 1. Update every `github-actions#vX.Y.Z` reference in `README.md` to the plugin version being released.
@@ -122,4 +125,4 @@ mise run release:publish vX.Y.Z
 
 The publish task creates or updates the GitHub Release and moves the lightweight `latest` tag with an explicit lease. It refuses backward or divergent promotion and is safe to rerun. CI holds no release-write credential.
 
-Stable `vX.Y.Z` plugin tags stay immutable. `github-actions#latest` follows the manually promoted plugin alias; configuration `version: latest` independently resolves the latest stable CLI release through GitHub's releases API.
+Stable `vX.Y.Z` plugin tags stay immutable. `github-actions#latest` follows the manually promoted plugin alias; configuration `version: latest` independently resolves the latest stable CLI release through Buildkite's cached release-metadata endpoint.

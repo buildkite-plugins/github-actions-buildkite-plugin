@@ -8,6 +8,9 @@ setup() {
   export BUILDKITE_PLUGIN_CONFIGURATION='{}'
   export BUILDKITE_GHA_PLUGIN_RELEASE='{"tag_name":"inherited-untrusted-metadata"}'
   export BUILDKITE_GHA_CACHE_DIR="$BATS_TEST_TMPDIR/cache"
+  export BUILDKITE_AGENT_ENDPOINT=https://agent.buildkite.com/v3
+  export BUILDKITE_AGENT_ACCESS_TOKEN=fixture-job-token
+  export BUILDKITE_JOB_ID=12345678-1234-1234-1234-123456789abc
   unset BUILDKITE_CLEAN_CHECKOUT BUILDKITE_GIT_CLEAN_FLAGS
   export MOCK_OS=Linux MOCK_ARCH=x86_64
   mkdir -p "$FIXTURE/bin" "$TMPDIR"
@@ -31,10 +34,16 @@ set -eu
 [[ "$6" == --globoff && "$7" == --proto && "$8" == '=https' && "$9" == --proto-redir && "${10}" == '=https' && "${11}" == --tlsv1.2 ]]
 url="${12}"
 [[ "${13}" == --output && "$url" != *'#'* ]]
-[[ $# == 14 || ( $# == 16 && "${15}" == --dump-header ) ]]
+[[ "${15}" == --dump-header ]]
+if [[ "$url" == "$BUILDKITE_AGENT_ENDPOINT/jobs/$BUILDKITE_JOB_ID/github-actions/releases/"* ]]; then
+  [[ $# == 20 && "${17}" == --header && "${18}" == @* && "${19}" == --max-redirs && "${20}" == 0 ]]
+  [[ "$(cat "${18#@}")" == "Authorization: Token $BUILDKITE_AGENT_ACCESS_TOKEN" ]]
+else
+  [[ $# == 16 ]] # Never attach the agent token to binary downloads.
+fi
 printf '%s\n' "$url" >> "$MOCK_LOG"
 if [[ -n "${MOCK_FAIL_SUFFIX:-}" && "$url" == *"$MOCK_FAIL_SUFFIX" ]]; then
-  if [[ $# == 16 ]]; then
+  if [[ $# -ge 16 ]]; then
     cat > "${16}" <<'HEADERS'
 HTTP/2 403
 x-ratelimit-limit: 60
@@ -49,7 +58,7 @@ HEADERS
   exit 22
 fi
 case "$url" in
-  https://api.github.com/repos/buildkite/buildkite-gha/releases/latest|https://api.github.com/repos/buildkite/buildkite-gha/releases/tags/*) source=release.json ;;
+  "$BUILDKITE_AGENT_ENDPOINT/jobs/$BUILDKITE_JOB_ID/github-actions/releases/"*) source=release.json ;;
   https://github.com/buildkite/buildkite-gha/releases/download/*/*.tar.gz) source=release.tar.gz ;;
   https://github.com/buildkite/buildkite-gha/releases/download/*/buildkite-gha_*) source=buildkite-gha ;;
   https://example.com/*) source=buildkite-gha ;;
@@ -184,6 +193,29 @@ assert_clean() {
   assert_clean
 }
 
+@test "uses the configured Agent API and fails closed without safe job credentials" {
+  export BUILDKITE_AGENT_ENDPOINT=https://agent-2.buildkite.com/v3
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx "$BUILDKITE_AGENT_ENDPOINT/jobs/$BUILDKITE_JOB_ID/github-actions/releases/latest" "$MOCK_LOG"
+
+  for variable in BUILDKITE_AGENT_ACCESS_TOKEN BUILDKITE_AGENT_ENDPOINT BUILDKITE_JOB_ID; do
+    rm -rf "$BUILDKITE_GHA_CACHE_DIR" "$FIXTURE/arguments"
+    : > "$MOCK_LOG"
+    run env "$variable=" "$REPO/hooks/command"
+    [ "$status" -ne 0 ]
+    [ ! -s "$MOCK_LOG" ]
+    [ ! -e "$FIXTURE/arguments" ]
+    assert_clean
+  done
+
+  run env BUILDKITE_AGENT_ACCESS_TOKEN=$'secret\r\nInjected: header' "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *secret* ]]
+  [ ! -s "$MOCK_LOG" ]
+  assert_clean
+}
+
 @test "accepts exact version shorthand and prereleases without resolving latest" {
   for version in 0.107.1 v0.107.1 v1.0.0-rc.1 1.0.0-rc.1+build.2; do
     release_metadata "v${version#v}"
@@ -193,7 +225,7 @@ assert_clean() {
     run "$REPO/hooks/command"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
     [ "$(wc -l < "$MOCK_LOG")" -eq 2 ]
-    grep -Fx "https://api.github.com/repos/buildkite/buildkite-gha/releases/tags/v${version#v}" "$MOCK_LOG"
+    grep -Fx "$BUILDKITE_AGENT_ENDPOINT/jobs/$BUILDKITE_JOB_ID/github-actions/releases/tags/v${version#v}" "$MOCK_LOG"
     assert_clean
   done
 }
@@ -282,7 +314,7 @@ assert_clean() {
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$MOCK_LOG")" -eq 1 ]
-  ! grep -q 'api.github.com' "$MOCK_LOG"
+  ! grep -q '/github-actions/releases/' "$MOCK_LOG"
   cmp "$FIXTURE/buildkite-gha" "$cached"
 
   # Numeric shorthand shares the exact-tag entry, not the latest selector.
@@ -316,7 +348,7 @@ EOF
   release_metadata v0.108.0
   run "$REPO/hooks/command"
   [ "$status" -eq 0 ]
-  [ "$(cat "$MOCK_LOG")" = https://api.github.com/repos/buildkite/buildkite-gha/releases/latest ]
+  [ "$(cat "$MOCK_LOG")" = "$BUILDKITE_AGENT_ENDPOINT/jobs/$BUILDKITE_JOB_ID/github-actions/releases/latest" ]
   [ "$(jq -r .tag_name "$FIXTURE/metadata")" = v0.108.0 ]
 
   # An expired response selecting different bytes also downloads the new binary.
@@ -342,7 +374,7 @@ EOF
     [ "$status" -eq 0 ] || { echo "$value: $output"; false; }
     case "$value" in
       1|t|T|TRUE|true|True)
-        [ "$(cat "$MOCK_LOG")" = https://api.github.com/repos/buildkite/buildkite-gha/releases/latest ] ;;
+        [ "$(cat "$MOCK_LOG")" = "$BUILDKITE_AGENT_ENDPOINT/jobs/$BUILDKITE_JOB_ID/github-actions/releases/latest" ] ;;
       *) [ ! -s "$MOCK_LOG" ] ;;
     esac
   done
@@ -359,7 +391,7 @@ EOF
     : > "$MOCK_LOG"
     run "$REPO/hooks/command"
     [ "$status" -eq 0 ] || { echo "$mutation: $output"; false; }
-    [ "$(cat "$MOCK_LOG")" = https://api.github.com/repos/buildkite/buildkite-gha/releases/tags/v0.107.1 ]
+    [ "$(cat "$MOCK_LOG")" = "$BUILDKITE_AGENT_ENDPOINT/jobs/$BUILDKITE_JOB_ID/github-actions/releases/tags/v0.107.1" ]
     [ "$(jq -c . "$FIXTURE/metadata")" = "$(jq -c . "$FIXTURE/release.json")" ]
   done
   printf 'not-json' > "$metadata_cache"
