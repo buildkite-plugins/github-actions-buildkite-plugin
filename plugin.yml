@@ -4,73 +4,33 @@ author: https://github.com/buildkite-plugins
 requirements:
   - bash
   - curl
-  - git
-  - tar
+  - jq
   - sha256sum (Linux) or shasum (macOS)
   - mktemp
-  - cp
+  - tar (historical release archives)
 configuration:
   type: object
-  oneOf:
-    - not:
-        anyOf:
-          - required:
-              - workflow
-          - required:
-              - workflows
-    - required:
-        - workflow
-    - required:
-        - workflows
+  not:
+    anyOf:
+      - required: [version, binary]
+      - required: [source-ref]
+      - required: [minimum-release-age]
   properties:
-    workflow:
-      type: string
-      minLength: 1
-      pattern: "^[^*?\\[\\]{}]+\\.ya?ml$"
-      description: One explicit .yml or .yaml workflow path. Missing or untracked paths are skipped.
-    workflows:
-      type: array
-      minItems: 1
-      items:
-        type: string
-        minLength: 1
-        pattern: "^[^*?\\[\\]{}]+\\.ya?ml$"
-      description: Explicit .yml or .yaml workflow paths. Missing or untracked paths are skipped.
     version:
       type: string
       default: latest
-      pattern: "^(latest|v?(0\\.(9|[1-9][0-9]+)|[1-9][0-9]*\\.(0|[1-9][0-9]*))\\.(0|[1-9][0-9]*))$"
-      description: Latest stable or an exact stable buildkite-gha CLI release from 0.9.0 onward.
-    source-ref:
-      type: string
-      minLength: 1
-      description: Buildkite-gha commit, branch, or tag to build for development testing. Symbolic refs resolve once to a commit. Mutually exclusive with version.
-    minimum-release-age:
-      type: string
-      minLength: 1
-      default: 0s
-      description: Minimum age passed to mise when selecting the latest buildkite-gha release.
-    experimental-runner-user:
-      type: boolean
-      default: true
-      description: Run generated Linux jobs as a dedicated runner user. Set to false only as a temporary compatibility opt-out.
-    oidc:
-      type: object
-      properties:
-        claims:
-          type: array
-          items:
-            type: string
-            minLength: 1
-          description: Optional claim names to include in Buildkite OIDC tokens.
-        aws-session-tags:
-          type: array
-          items:
-            type: string
-            minLength: 1
-          description: Claim names to duplicate into AWS session-tag format.
-        subject-claim:
-          type: string
-          minLength: 1
-          description: Immutable claim name to use as the token subject.
+      pattern: '^(latest|v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(\+[0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*)?)$'
+      description: Latest stable or an exact buildkite-gha release, including prereleases and historical archive releases.
+    binary:
+      description: HTTPS raw executable URL with optional SHA256 fragment, or URLs keyed by platform. Requires companion CLI support.
+      oneOf:
+        - type: string
+          pattern: '^https://[^/@\s?#]+([/?][^\s#]*)?(#sha256=[0-9a-fA-F]{64})?$'
+        - type: object
+          minProperties: 1
+          patternProperties:
+            '^(linux/(amd64|arm64)|darwin/arm64|windows/amd64)$':
+              type: string
+              pattern: '^https://[^/@\s?#]+([/?][^\s#]*)?(#sha256=[0-9a-fA-F]{64})?$'
+          additionalProperties: false
   additionalProperties: true

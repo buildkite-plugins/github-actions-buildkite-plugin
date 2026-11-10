@@ -1,67 +1,130 @@
 # Development
 
-Use this guide to test plugin changes, run CI smoke tests, and prepare a release.
+## Use a custom executable
 
-## Prerequisites
+Build the CLI outside the plugin, then publish it at an HTTPS URL. Use `binary` to test that build instead of an official release. Don't combine `binary` with an explicit `version`, including `version: latest`.
 
-Install [mise](https://mise.jdx.dev/), then install the pinned local tools:
+> [!IMPORTANT]
+> Use a CLI build that supports `binary` configuration. Older CLIs reject this property.
 
-```bash
-mise install
+Use a raw executable URL, not an archive, local path, or URL template. Prefer an immutable URL with a `#sha256=` fragment containing its 64-digit hexadecimal SHA256. The fragment is removed before download, and the executable bytes are verified before execution. Plain HTTPS URLs remain available for development; other fragments are rejected.
+
+```yaml
+plugins:
+  - github-actions#latest:
+      workflow: .github/workflows/ci.yml
+      binary: "https://example.com/buildkite-gha-linux-amd64#sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 ```
 
-The release tasks also require `gh` authenticated with write access to `buildkite-plugins/github-actions-buildkite-plugin`. The CLI is installed by mise; run `mise exec -- gh auth login` and `mise exec -- gh auth setup-git` once to configure its HTTPS Git credential.
+Replace the example URL and checksum with your executable's values. A single URL covers the importer platform only. For workflows that need other platforms, supply a map with the importer and each required counterpart:
+
+```yaml
+plugins:
+  - github-actions#latest:
+      workflow: .github/workflows/ci.yml
+      binary:
+        linux/amd64: https://example.com/buildkite-gha-linux-amd64
+        linux/arm64: https://example.com/buildkite-gha-linux-arm64
+        darwin/arm64: https://example.com/buildkite-gha-darwin-arm64
+        windows/amd64: https://example.com/buildkite-gha-windows-amd64.exe
+```
+
+Each map URL also accepts a checksum fragment. The plugin downloads only its importer executable and forwards the configuration unchanged. The companion CLI downloads and verifies counterparts only when needed, with no release fallback for a missing platform. Use matching builds across the map. Windows amd64 is a counterpart platform only.
+
+> [!WARNING]
+> Custom URLs select code that runs with the importer's authority. HTTPS protects transport, not publisher trust; a checksum pins bytes but does not establish who built them. Use trusted publishers and do not put credentials in URLs. URLs remain in pipeline configuration and may appear in errors.
+
+`source-ref` and `minimum-release-age` are retired and fail with an error. Use `binary` to test unreleased code and an exact `version` instead of delaying `latest`.
+
+## Binary acquisition
+
+For custom importers, use a Linux amd64/arm64 or native macOS arm64 agent with the dependencies in [`plugin.yml`](plugin.yml) and outbound HTTPS access to Buildkite and GitHub. Windows importers are not supported. The importer's `agents` configuration selects its queue; `runners` mappings select generated jobs, not the importer.
+
+The plugin reads release metadata from the configured `BUILDKITE_AGENT_ENDPOINT` at `/jobs/<job-id>/github-actions/releases/latest` or `/jobs/<job-id>/github-actions/releases/tags/<tag>`. Like the existing runner, environment, and variable APIs, this requires the current job's `BUILDKITE_AGENT_ACCESS_TOKEN` and `BUILDKITE_JOB_ID`. The endpoint must use HTTPS. Buildkite caches published release metadata for one hour using server-side GitHub access. Binaries still download directly from GitHub. The plugin sends the job token only to the Agent API and does not follow metadata redirects. Endpoint failures stop acquisition without falling back to the anonymous API.
+
+The plugin also caches this metadata locally for one hour, separately for `latest` and each exact tag. Cache hits do not extend either window. The combined server and local caches can delay a new `latest` by about two hours. Agent API responses use `Cache-Control: no-store`; shared caching stays inside Rails. Expired or malformed local metadata requires a successful authenticated lookup; a failed refresh does not fall back to stale local data. Concurrent cold server misses can duplicate upstream requests, bounded by a shared limit of 30 per minute; expiry refreshes use a five-second race-condition window.
+
+The plugin validates the release tag, selected asset URL, and SHA256 digest on cache hits and fresh responses. It prefers the platform's raw executable and verifies its bytes against that digest. For historical releases without a raw asset, it verifies the release archive's API digest and extracts only `buildkite-gha`. Invalid raw metadata or bytes fail without falling back to an archive. It does not fetch `checksums.txt`, install mise, or build Go source.
+
+`BUILDKITE_CLEAN_CHECKOUT` values `1`, `t`, `T`, `true`, `TRUE`, and `True` bypass local metadata for that import and refresh the cache entry from Buildkite. They do not bypass Buildkite's shared cache. False, empty, and unrecognized values do not bypass the cache. `BUILDKITE_GIT_CLEAN_FLAGS` does not affect caching. This plugin policy supplements the agent's checkout removal; it does not delete shared binary caches.
+
+The plugin passes the resolved release to the CLI in `BUILDKITE_GHA_PLUGIN_RELEASE`. CLIs with metadata-handoff support use it for counterpart selection without another API request. Historical CLIs retain their own counterpart acquisition. Custom binaries clear this internal environment variable.
+
+Official binaries and checksum-pinned custom binaries use a local cache keyed by platform and digest. Each invocation copies cached bytes into a private temporary directory and verifies them before execution. Missing or corrupt entries are downloaded and verified before replacing the cache entry. Plain custom URLs are downloaded each time. Custom URLs never use the release metadata cache. A warm release import makes no network requests for metadata or binaries until its metadata expires. Refreshing metadata does not download the binary again when its digest is unchanged.
+
+Historical releases cache the verified archive by platform and archive digest, then extract the executable into the private temporary directory on each invocation. Warm imports need no archive download. Historical release assets and exact version pins remain unchanged.
+
+The cache root is the first available setting below. Explicit paths must be absolute. If the cache cannot be written, the plugin still downloads and verifies the executable for that invocation.
+
+| Setting | Cache root |
+| --- | --- |
+| `BUILDKITE_GHA_CACHE_DIR` | The specified path |
+| `MISE_DATA_DIR` | `$MISE_DATA_DIR/buildkite-gha` (existing agent compatibility) |
+| Writable hosted-agent cache | `/cache/bkcache/buildkite-gha` |
+| `BUILDKITE_AGENT_DATA_PATH` | `$BUILDKITE_AGENT_DATA_PATH/cache/buildkite-gha` |
+| `XDG_CACHE_HOME` | `$XDG_CACHE_HOME/buildkite-gha` |
+| `HOME` | `$HOME/.cache/buildkite-gha` |
+
+Released CLIs also use `MISE_DATA_DIR` to cache other-platform runtimes. If unset, the plugin passes its selected cache root as `MISE_DATA_DIR` when launching the CLI, without installing mise. Explicit settings remain unchanged. These CLI-owned entries live under `$MISE_DATA_DIR/buildkite-gha/releases`.
+
+Cache reuse requires persistent storage shared by the relevant invocations; separate ephemeral agents do not share it automatically. Keep the cache writable only by trusted importers, isolated from untrusted jobs: cached metadata supplies the expected binary digest. The private execution directory is removed on exit.
+
+The plugin validates acquisition properties only. All other options, including `workflow`, `workflows`, `runners`, and `oidc`, pass unchanged to the selected CLI for strict validation.
 
 ## Run local checks
 
-From the repository root, run:
+Install [mise](https://mise.jdx.dev/), then run:
 
 ```bash
+mise install
 mise run check
 ```
 
-The Bats suite makes no live network requests. CI runs these checks plus the Buildkite plugin linter. Importer runtime dependencies are listed in `plugin.yml`.
+Mise manages contributor tools only, not importer installation. The importer dependencies are listed in [`plugin.yml`](plugin.yml).
 
-## Run continuous integration smoke tests
+The offline Bats suite tests the plugin boundary: acquisition configuration, platform selection, HTTPS download policy, API digest verification, cache reuse and repair, release metadata handoff, unchanged CLI configuration, exit status, and temporary-file cleanup. It uses real executable hashes, a fake download transport, and a recording executable. Workflow behavior belongs in the CLI's tests, not simulated CLI implementations here. ShellCheck checks the hook; CI also runs the Buildkite plugin linter.
 
-The Buildkite Pipelines build runs required released-runtime smoke tests that:
+## CI smoke coverage
 
-- Pin the plugin to the build's full public commit SHA, except the native macOS importer regressions, which retain plugin v0.11.0.
-- Pin `buildkite-gha` v0.46.2 through mise.
-- Run Linux-only default-image and explicit-image jobs with the experimental `runner` user, a mixed Linux-to-macOS graph, and a macOS-only graph.
+[`.buildkite/pipeline.yml`](.buildkite/pipeline.yml) defaults to the historical CLI pin `0.107.1` and the current build's full plugin commit, including native macOS importers. For a release compatibility check, set the build environment variable `PLUGIN_SMOKE_VERSION` to an exact stable CLI version or `latest`. Set `PLUGIN_SMOKE_REF` to an immutable plugin version or full commit to check the same workflows with an older plugin. Normal CI keeps the historical defaults.
 
-These tests use Linux x86-64 and native macOS arm64 Buildkite hosted agents running Agent v4, without configured secrets or a cache service. The mixed graphs explicitly disable `experimental-runner-user` to retain their existing root execution; the Linux-only graphs retain runner-user coverage despite the newer runtime's default changing to `true`.
+The released-runtime smoke graphs cover:
 
-The same build also runs source smokes pinned to the v0.46.2 commit, [`e492fcadf9b93148e5797e8be89d11ad64a220be`](https://github.com/buildkite/buildkite-gha/commit/e492fcadf9b93148e5797e8be89d11ad64a220be). They verify that `source-ref` installs the required Go toolchain, builds Linux amd64, Darwin arm64, and Windows amd64 executables from the selected source, and runs Linux (including the experimental `runner` user), mixed, and macOS-only graphs without replacing the released-runtime smoke. These smokes do not execute Windows jobs.
+- Linux default and explicit images with the dedicated `runner` user.
+- A Linux-to-macOS dependency and a macOS-only graph, imported from Linux.
+- The same mixed and macOS-only fixtures imported from native macOS arm64.
 
-v0.46.2 is the first published runtime that removes `--reject-secrets` from pipeline uploads. Agent v4 removed that flag and rejects secrets by default; the former v0.17.0, native-importer v0.13.0, and source smoke pins fail on Agent v4. Keep `--no-interpolation` and default secret rejection enabled; do not set `BUILDKITE_AGENT_PIPELINE_UPLOAD_ALLOW_SECRETS=true`. See the [versioned upload contract](https://github.com/buildkite/buildkite-gha/blob/v0.46.2/docs/cli.md#upload).
+These checks exercise real released CLI integration on Linux x86-64 and native macOS arm64 agents. They do not exercise Windows or Linux arm64 agents, custom binaries, secrets, or a cache service. Source builds are not part of plugin acquisition or CI. Do not add manual hosted builds or releases to local checks.
 
 ## Release the plugin
 
-Plugin releases are immutable Git tags with asset-free GitHub Releases. Before you create a `v0.x.y` tag:
+Plugin releases are immutable Git tags with asset-free GitHub Releases. The release tasks require `gh` authenticated with write access to `buildkite-plugins/github-actions-buildkite-plugin`:
 
-1. Verify that the default runtime version has a public `buildkite/buildkite-gha` release.
-1. Review the compatibility and security documentation at that runtime tag rather than using the potentially unreleased behavior on `main`.
-1. Confirm that the released-runtime smoke test selects and verifies that release through mise.
-1. Update every `github-actions#vX.Y.Z` reference in `README.md` to the plugin version being released; the plugin linter accepts this prospective version on `main` and requires it on the tag build.
-1. Wait for the Buildkite Pipelines build for `main` to pass.
+```bash
+mise exec -- gh auth login
+mise exec -- gh auth setup-git
+```
 
-The Buildkite app contract changes required for server workflow selection without an explicit selector (#33143 and #33235) are deployed, and `buildkite-gha` v0.48.0 is the first runtime release that accepts selector-free configurations. Older runtimes reject them, and the server contract supplies the trusted trigger context that makes them valid.
+Before tagging:
 
-When changing runtime integration, update `plugin.yml`, `hooks/command`, `.github/workflows/plugin-smoke.yml`, `tests/command.bats`, and the README together. Make sure the examples and versioned compatibility and security links describe the recommended runtime release.
+1. Deploy and verify the Buildkite release-metadata endpoint before publishing a plugin that uses it. Keep the endpoint available after promotion, including for retries with pinned plugin versions.
+1. Confirm the recommended CLI has a public release and the documented behavior is shipped. Do not advertise custom-binary support until its companion CLI support ships.
+1. Review the current product compatibility and security documentation.
+1. Update every `github-actions#vX.Y.Z` reference in `README.md` to the plugin version being released.
+1. Wait for the Buildkite build for `main` to pass, including released-runtime smokes.
 
-From a clean, up-to-date local `main`, create the immutable lightweight tag:
+From a clean, up-to-date local `main`:
 
 ```bash
 mise run release:tag vX.Y.Z
 ```
 
-The task runs the local checks and refuses a dirty, outdated, existing, or malformed release. The tag triggers another Buildkite build. Once that tag build passes every static check and live release/source smoke test, publish the validated release:
+The task runs local checks and refuses dirty, outdated, existing, or malformed releases. The tag triggers another Buildkite build. After that build passes its static checks and live smokes, publish it:
 
 ```bash
 mise run release:publish vX.Y.Z
 ```
 
-The publish task creates or updates the GitHub Release and moves the lightweight `latest` tag with an explicit lease. It refuses to move `latest` backwards or across divergent history and is safe to rerun. CI holds no release-write credential.
+The publish task creates or updates the GitHub Release and moves the lightweight `latest` tag with an explicit lease. It refuses backward or divergent promotion and is safe to rerun. CI holds no release-write credential.
 
-Stable `vX.Y.Z` plugin tags remain immutable; `latest` is an intentionally mutable plugin alias, so `github-actions#latest` selects the newest manually promoted stable plugin release. This is separate from the plugin configuration `version: latest`, which selects the latest stable `buildkite-gha` runtime through mise.
+Stable `vX.Y.Z` plugin tags stay immutable. `github-actions#latest` follows the manually promoted plugin alias; configuration `version: latest` independently resolves the latest stable CLI release through Buildkite's cached release-metadata endpoint.
