@@ -4,8 +4,17 @@ umask 077
 
 error() { echo "github-actions plugin: $*" >&2; exit 1; }
 download() {
+  local status=0 headers="$2.headers"
   curl --disable --fail --silent --show-error --location --globoff \
-    --proto '=https' --proto-redir '=https' --tlsv1.2 "$1" --output "$2"
+    --proto '=https' --proto-redir '=https' --tlsv1.2 "$1" --output "$2" \
+    --dump-header "$headers" || status=$?
+  if (( status != 0 )) && [[ -f "$headers" ]]; then
+    echo "github-actions plugin: download failed (${2##*/})" >&2
+    # Exclude cookies and signed redirect URLs from failure diagnostics.
+    awk 'tolower($1) ~ /^(http\/|x-ratelimit-(limit|remaining|reset|used|resource):$|retry-after:$)/' "$headers" >&2
+  fi
+  rm -f -- "$headers"
+  return "$status"
 }
 
 sha256() {

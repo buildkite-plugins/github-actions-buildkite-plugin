@@ -30,9 +30,21 @@ set -eu
 [[ "$1" == --disable && "$2" == --fail && "$3" == --silent && "$4" == --show-error && "$5" == --location ]]
 [[ "$6" == --globoff && "$7" == --proto && "$8" == '=https' && "$9" == --proto-redir && "${10}" == '=https' && "${11}" == --tlsv1.2 ]]
 url="${12}"
-[[ "${13}" == --output && $# == 14 && "$url" != *'#'* ]]
+[[ "${13}" == --output && "$url" != *'#'* ]]
+[[ $# == 14 || ( $# == 16 && "${15}" == --dump-header ) ]]
 printf '%s\n' "$url" >> "$MOCK_LOG"
 if [[ -n "${MOCK_FAIL_SUFFIX:-}" && "$url" == *"$MOCK_FAIL_SUFFIX" ]]; then
+  if [[ $# == 16 ]]; then
+    cat > "${16}" <<'HEADERS'
+HTTP/2 403
+x-ratelimit-limit: 60
+X-RateLimit-Remaining: 0
+x-ratelimit-reset: 1794290006
+Retry-After: 120
+Location: https://example.com/private?token=secret
+Set-Cookie: secret
+HEADERS
+  fi
   echo 'curl: fixture HTTP failure' >&2
   exit 22
 fi
@@ -512,6 +524,10 @@ EOF
     run "$REPO/hooks/command"
     [ "$status" -eq 22 ]
     [[ "$output" == *"curl: fixture HTTP failure"* ]]
+    [[ "$output" == *"HTTP/2 403"* ]]
+    [[ "$output" == *"X-RateLimit-Remaining: 0"* ]]
+    [[ "$output" == *"Retry-After: 120"* ]]
+    [[ "$output" != *secret* ]]
     [ ! -e "$FIXTURE/arguments" ]
     assert_clean
   done
