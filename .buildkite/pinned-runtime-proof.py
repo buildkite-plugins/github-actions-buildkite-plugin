@@ -36,8 +36,9 @@ def prepare():
         wrapper.write_text(f'#!/bin/sh\nexec python3 "{SCRIPT}" capture "$@"\n')
         wrapper.chmod(0o700)
         env = dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}', BUILDKITE_GHA_TELEMETRY_DISABLED="true")
-        subprocess.run([str(binary), "upload", ".buildkite/fixtures/pinned-runtime-proof.yml"], env=env, check=True)
+        subprocess.run([str(binary), "upload", "--runner-queue", "ubuntu-latest=hosted", ".buildkite/fixtures/pinned-runtime-proof.yml"], env=env, check=True)
         pipeline = (root / "pipeline.yml").read_text()
+        assert len(re.findall(r'^\s+BUILDKITE_GHA_PLAN_DIGEST: "sha256:[0-9a-f]{64}"$', pipeline, re.M)) == 1, "expected one admitted plan, not a failure or skipped workflow"
         commands = re.findall(r'^\s+command: (".*")$', pipeline, re.M)
         assert len(commands) == 1, "expected one executable job"
         legacy = root / "legacy.sh"
