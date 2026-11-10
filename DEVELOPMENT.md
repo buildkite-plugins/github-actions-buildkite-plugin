@@ -65,6 +65,8 @@ The cache root is the first available setting below. Explicit paths must be abso
 | `XDG_CACHE_HOME` | `$XDG_CACHE_HOME/buildkite-gha` |
 | `HOME` | `$HOME/.cache/buildkite-gha` |
 
+Released CLIs also use `MISE_DATA_DIR` to cache other-platform runtimes. If unset, the plugin passes its selected cache root as `MISE_DATA_DIR` when launching the CLI, without installing mise. Explicit settings remain unchanged. These CLI-owned entries live under `$MISE_DATA_DIR/buildkite-gha/releases`.
+
 Cache reuse requires persistent storage shared by the relevant invocations; separate ephemeral agents do not share it automatically. Keep the cache writable only by trusted importers, isolated from untrusted jobs: cached metadata supplies the expected binary digest. The private execution directory is removed on exit.
 
 The plugin validates acquisition properties only. All other options, including `workflow`, `workflows`, `runners`, and `oidc`, pass unchanged to the selected CLI for strict validation.

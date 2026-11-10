@@ -190,4 +190,7 @@ else
 fi
 [[ -s "$runtime_dir/buildkite-gha" ]] || error "downloaded executable is empty"
 chmod 0700 "$runtime_dir/buildkite-gha"
+if [[ -z "${MISE_DATA_DIR:-}" && -n "$cache" ]]; then
+  export MISE_DATA_DIR="$cache"
+fi
 "$runtime_dir/buildkite-gha" plugin

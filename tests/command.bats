@@ -21,6 +21,7 @@ set -eu
 printf '%s\n' "$*" > "$FIXTURE/arguments"
 printf '%s' "$BUILDKITE_PLUGIN_CONFIGURATION" > "$FIXTURE/configuration"
 printf '%s' "${BUILDKITE_GHA_PLUGIN_RELEASE:-}" > "$FIXTURE/metadata"
+printf '%s' "${MISE_DATA_DIR:-}" > "$FIXTURE/cli-cache-root"
 stat -c %a "$(dirname "$0")" > "$FIXTURE/mode" 2>/dev/null || stat -f %Lp "$(dirname "$0")" > "$FIXTURE/mode"
 ls -A "$(dirname "$0")" > "$FIXTURE/files"
 exit "${MOCK_IMPORTER_EXIT:-0}"
@@ -469,6 +470,7 @@ EOF
     run "$REPO/hooks/command"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
     cmp "$FIXTURE/buildkite-gha" "$root/binaries/linux-amd64/${hash%% *}"
+    [ "$(cat "$FIXTURE/cli-cache-root")" = "${MISE_DATA_DIR:-$root}" ]
   done
   touch "$BATS_TEST_TMPDIR/not-a-directory"
   for root in "$BATS_TEST_TMPDIR/not-a-directory/cache" relative-cache; do
