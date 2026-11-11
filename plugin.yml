@@ -5,9 +5,7 @@ requirements:
   - bash
   - curl
   - jq
-  - sha256sum (Linux) or shasum (macOS)
   - mktemp
-  - tar (historical release archives)
 configuration:
   type: object
   oneOf:

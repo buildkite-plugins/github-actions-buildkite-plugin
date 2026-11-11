@@ -48,6 +48,7 @@ steps:
             automatic: false
           env:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
+            BUILDKITE_PLUGIN_VALIDATION: "true"
           plugins:
             - github-actions#$$plugin_ref:
                 workflow: .buildkite/fixtures/plugin-release-linux.yml
@@ -68,6 +69,7 @@ steps:
             automatic: false
           env:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
+            BUILDKITE_PLUGIN_VALIDATION: "true"
           plugins:
             - github-actions#$$plugin_ref:
                 workflows:
@@ -88,6 +90,7 @@ steps:
             automatic: false
           env:
             BUILDKITE_PLUGINS_ALWAYS_CLONE_FRESH: "true"
+            BUILDKITE_PLUGIN_VALIDATION: "true"
           plugins:
             - github-actions#$$plugin_ref:
                 workflows:
@@ -103,6 +106,8 @@ steps:
           timeout_in_minutes: 20
           retry:
             automatic: false
+          env:
+            BUILDKITE_PLUGIN_VALIDATION: "true"
           plugins:
             - github-actions#$$plugin_ref:
                 workflows:
@@ -119,6 +124,8 @@ steps:
           timeout_in_minutes: 20
           retry:
             automatic: false
+          env:
+            BUILDKITE_PLUGIN_VALIDATION: "true"
           plugins:
             - github-actions#$$plugin_ref:
                 workflows:
