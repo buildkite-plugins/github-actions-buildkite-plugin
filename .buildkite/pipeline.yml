@@ -18,11 +18,11 @@ steps:
     plugins:
       - shellcheck#v1.4.0:
           files:
-            - hooks/*
+            - hooks/command
             - lib/*
   - label: ":pipeline: Load live plugin smoke"
     key: "live-plugin-smoke-loader"
-    if: build.env("PLUGIN_PINNED_RUNTIME_PROOF") != "1"
+    if: build.env("PLUGIN_PINNED_RUNTIME_PROOF") != "1" && build.env("PLUGIN_PINNED_RUNTIME_PROOF") != "platforms"
     agents:
       queue: "hosted"
     timeout_in_minutes: 15
@@ -147,3 +147,12 @@ steps:
     retry:
       automatic: false
     command: python3 .buildkite/pinned-runtime-proof.py import
+  - label: ":test_tube: Schedule native pinned runtime proof"
+    key: "platform-runtime-proof-importer"
+    if: build.env("PLUGIN_PINNED_RUNTIME_PROOF") == "platforms"
+    agents:
+      queue: "hosted"
+    timeout_in_minutes: 20
+    retry:
+      automatic: false
+    command: python3 .buildkite/pinned-runtime-proof.py platforms

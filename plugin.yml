@@ -2,10 +2,7 @@ name: GitHub Actions
 description: Run GitHub Actions workflows as native Buildkite steps
 author: https://github.com/buildkite-plugins
 requirements:
-  - bash
   - curl
-  - jq
-  - mktemp
 configuration:
   type: object
   oneOf:
@@ -32,6 +29,7 @@ configuration:
           oneOf:
             - required: [path]
             - required: [producer]
+            - required: [inline]
           properties:
             digest:
               type: string
@@ -40,17 +38,38 @@ configuration:
               type: string
               minLength: 1
               description: Local plan file, copied and verified before use.
+            inline:
+              type: string
+              minLength: 1
+              pattern: '^[A-Za-z0-9+/]+={0,2}$'
+              description: Base64-encoded plan JSON, verified without rewriting its bytes.
             producer:
               type: string
               pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
               description: Exact Buildkite job UUID holding the content-addressed plan and event artifacts.
+        event:
+          type: object
+          oneOf:
+            - required: [inline]
+            - required: [env]
+          additionalProperties: false
+          properties:
+            env:
+              enum: [BUILDKITE_GHA_EVENT_PAYLOAD]
+              description: Read base64 event JSON from this environment variable, then unset it before execution.
+            inline:
+              type: string
+              minLength: 1
+              maxLength: 87384
+              pattern: '^[A-Za-z0-9+/]+={0,2}$'
+              description: Base64-encoded event JSON, at most 64 KiB decoded, bound to the plan and uploaded by the execution job.
         runtime:
           type: object
           required: [platform, url, sha256]
           additionalProperties: false
           properties:
             platform:
-              enum: [linux/amd64, linux/arm64]
+              enum: [linux/amd64, linux/arm64, darwin/arm64, windows/amd64]
             url:
               type: string
               pattern: '^https://[^/@\s?#]+([/?][^\s#]*)?$'
@@ -60,7 +79,11 @@ configuration:
         hosted-tool-cache:
           type: boolean
           default: false
-          description: Grant runner access to the existing /opt/hostedtoolcache and enable it in run-job.
+          description: Prepare the platform's hosted tool cache and enable it in run-job.
+        namespace:
+          type: boolean
+          default: false
+          description: Preserve native Namespace image PATH, hostname and Docker build behavior on Linux and macOS.
     version:
       type: string
       default: latest

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Opt-in hosted comparison. All agent and HTTP calls use real services."""
+import base64
 import hashlib
 import json
 import os
@@ -127,5 +128,99 @@ def execute(producer):
         print("PROOF PASS: same saved plan, real artifacts, real Job API, identity, permissions, status, cold/warm and bad digest", flush=True)
 
 
+def platforms():
+    """Test the plugin before a released importer emits the expanded contract."""
+    assert os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    version = os.environ.get("PINNED_PROOF_VERSION", "0.133.0")
+    assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version)
+    plugin_ref = os.environ.get("PINNED_PROOF_PLUGIN_REF", os.environ["BUILDKITE_COMMIT"])
+    assert re.fullmatch(r"[0-9a-f]{40}|v[0-9]+\.[0-9]+\.[0-9]+", plugin_ref)
+    source = os.environ.get("PINNED_PROOF_PLAN_SOURCE", "producer")
+    assert source in ("producer", "inline")
+    producer = os.environ["BUILDKITE_JOB_ID"]
+    endpoint = os.environ["BUILDKITE_AGENT_ENDPOINT"].rstrip("/")
+    assert endpoint.startswith("https://")
+    request = urllib.request.Request(f"{endpoint}/jobs/{producer}/github-actions/releases/tags/v{version}",
+                                     headers={"Authorization": "Token " + os.environ["BUILDKITE_AGENT_ACCESS_TOKEN"]})
+    with urllib.request.urlopen(request) as response:
+        release = json.load(response)
+    assert release["tag_name"] == "v" + version
+    names = {"linux/amd64": "linux_x86_64", "linux/arm64": "linux_arm64",
+             "darwin/arm64": "darwin_arm64", "windows/amd64": "windows_x86_64.exe"}
+    assets = {}
+    for platform, suffix in names.items():
+        matches = [asset for asset in release["assets"] if asset["name"] == "buildkite-gha_" + suffix]
+        assert len(matches) == 1
+        asset = matches[0]
+        assert asset["browser_download_url"].startswith("https://")
+        assert re.fullmatch(r"sha256:[0-9a-f]{64}", asset["digest"])
+        assets[platform] = asset
+    with tempfile.TemporaryDirectory(prefix="platform-runtime-import-") as temporary:
+        root = Path(temporary)
+        binary = root / "buildkite-gha"
+        with urllib.request.urlopen(assets["linux/amd64"]["browser_download_url"]) as response:
+            binary.write_bytes(response.read())
+        assert "sha256:" + hashlib.sha256(binary.read_bytes()).hexdigest() == assets["linux/amd64"]["digest"]
+        binary.chmod(0o700)
+        event = root / "event.json"
+        event.write_text(json.dumps({"provider": "github", "event": "workflow_dispatch",
+            "repository": {"owner": "buildkite-plugins", "name": "github-actions-buildkite-plugin",
+                           "clone_url": "https://github.com/buildkite-plugins/github-actions-buildkite-plugin.git", "default_branch": "main"},
+            "ref": "refs/heads/" + os.environ["BUILDKITE_BRANCH"], "sha": os.environ["BUILDKITE_COMMIT"],
+            "actor": "buildkite-gha-proof", "payload": {"inputs": {"marker": "platform-proof"}}}))
+        os.environ["PROOF_REAL_AGENT"] = shutil.which("buildkite-agent")
+        os.environ["PROOF_ROOT"] = str(root)
+        wrapper = root / "buildkite-agent"
+        wrapper.write_text(f'#!/bin/sh\nexec python3 "{SCRIPT}" capture "$@"\n')
+        wrapper.chmod(0o700)
+        env = dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}', BUILDKITE_GHA_PLUGIN_RELEASE=json.dumps(release))
+        arguments = [str(binary), "upload", "--event-path", str(event)]
+        for label, key in [("ubuntu-latest", "LINUX"), ("ubuntu-24.04-arm", "ARM"), ("macos-14", "MAC"), ("windows-2022", "WINDOWS")]:
+            arguments += ["--runner-queue", label + "=" + os.environ["PINNED_PROOF_" + key + "_QUEUE"]]
+        for platform, asset in assets.items():
+            if platform == "linux/amd64":
+                continue
+            counterpart = root / asset["name"]
+            with urllib.request.urlopen(asset["browser_download_url"]) as response:
+                counterpart.write_bytes(response.read())
+            assert "sha256:" + hashlib.sha256(counterpart.read_bytes()).hexdigest() == asset["digest"]
+            arguments += ["--runtime-distribution", platform + "=" + str(counterpart)]
+        subprocess.run([*arguments, ".github/workflows/pinned-runtime-platforms.yml"], env=env, check=True)
+        pipeline = json.loads(agent("pipeline", "upload", "--dry-run", "--no-interpolation", "--format", "json", str(root / "pipeline.yml")))
+        steps = [job for group in pipeline["steps"] for job in group.get("steps", [group])]
+        records = []
+        for step in steps:
+            digest = step.get("env", {}).get("BUILDKITE_GHA_PLAN_DIGEST")
+            assert digest, "expected an admitted executable plan"
+            path = ".buildkite-gha/plans/" + digest.removeprefix("sha256:") + ".json"
+            agent("artifact", "download", path, str(root), "--step", producer)
+            plan_bytes = (root / path).read_bytes()
+            assert "sha256:" + hashlib.sha256(plan_bytes).hexdigest() == digest
+            plan = json.loads(plan_bytes)
+            platform = next(platform for platform, asset in assets.items() if asset["digest"] == plan["runtime"]["distribution_digest"])
+            asset = assets[platform]
+            run = {"plan": {"digest": digest, "producer": producer},
+                   "runtime": {"platform": platform, "url": asset["browser_download_url"], "sha256": asset["digest"][7:]},
+                   "hosted-tool-cache": platform == "darwin/arm64" or bool(step.get("image"))}
+            if source == "inline":
+                run["plan"] = {"digest": digest, "inline": base64.b64encode(plan_bytes).decode()}
+                event_path = ".buildkite-gha/events/" + plan["event"]["payload_digest"][7:] + ".json"
+                agent("artifact", "download", event_path, str(root), "--step", producer)
+                run["event"] = {"inline": base64.b64encode((root / event_path).read_bytes()).decode()}
+            # The plugin-stage proof deliberately changes only delivery. Later
+            # importer proofs must submit their emitted steps without rewriting.
+            step.pop("command", None)
+            step["plugins"] = [{"github-actions#" + plugin_ref: {"run": run}}]
+            step.setdefault("env", {})["BUILDKITE_PLUGIN_VALIDATION"] = "true"
+            records.append({"key": step["key"], "platform": platform, "plan": digest, "source": source,
+                            "runtime": asset["digest"], "event": plan["event"]["payload_digest"]})
+        assert len(records) == 8 and {r["platform"] for r in records} == set(names)
+        receipt = root / "platform-runtime-plans.json"
+        receipt.write_text(json.dumps(records, indent=2))
+        agent("artifact", "upload", receipt.name, cwd=root)
+        agent("pipeline", "upload", "--no-interpolation", input=json.dumps(pipeline).encode())
+        print(f"Scheduled {len(records)} native jobs with plugin {plugin_ref}, runtime v{version}, source={source}")
+
+
 if __name__ == "__main__":
-    {"import": prepare, "capture": capture, "probe": probe, "run": lambda: execute(sys.argv[2])}[sys.argv[1]]()
+    {"import": prepare, "capture": capture, "probe": probe, "platforms": platforms, "run": lambda: execute(sys.argv[2])}[sys.argv[1]]()
