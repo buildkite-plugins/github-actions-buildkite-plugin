@@ -710,11 +710,22 @@ EOF
 }
 
 @test "macOS uses current identity and preserves runtime status without Linux setup" {
-  export BUILDKITE_PLUGIN_CONFIGURATION="$(execution_configuration | jq -c '.run.runtime.platform = "darwin/arm64" | .run.namespace = true')"
+  export BUILDKITE_PLUGIN_CONFIGURATION="$(execution_configuration | jq -c '.run.runtime.platform = "darwin/arm64" | .run.namespace = true | .run["hosted-tool-cache"] = true')"
   export MOCK_OS=Darwin MOCK_ARCH=arm64 MOCK_IMPORTER_EXIT=37
+  cat > "$FIXTURE/bin/sudo" <<'EOF'
+#!/bin/bash
+case "$2" in
+  mkdir) mkdir -p "$FIXTURE/mac/runner/hostedtoolcache" ;;
+  chown|chmod) ;; # Leave the parent permissions as mkdir created them.
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x "$FIXTURE/bin/sudo"
+  umask 022
   run "$REPO/hooks/command"
   [ "$status" -eq 37 ] || { echo "$output"; false; }
-  [[ "$(cat "$FIXTURE/arguments")" == "run-job --plan $TMPDIR/"*"/plan.json --docker-build-load" ]]
+  [ "$(stat -c %a "$FIXTURE/mac/runner")" = 755 ]
+  [[ "$(cat "$FIXTURE/arguments")" == "run-job --plan $TMPDIR/"*"/plan.json --hosted-tool-cache --docker-build-load" ]]
   [ "$(cat "$MOCK_LOG")" = https://example.com/runtime ]
   assert_clean
 }

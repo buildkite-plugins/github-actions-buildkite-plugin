@@ -277,12 +277,14 @@ if "$execution"; then
     fi
   fi
   if [[ "$platform" == darwin/arm64 ]]; then
+    # Host directories need the agent's normal permissions, not the private
+    # download directory's umask (which can hide /Users/runner from the agent).
+    umask "$original_umask"
     if [[ "$hosted_tool_cache" == true ]]; then
       sudo -n mkdir -p /Users/runner/hostedtoolcache
       sudo -n chown -R "$(id -u):$(id -g)" /Users/runner/hostedtoolcache
       sudo -n chmod -R u+rwX /Users/runner/hostedtoolcache
     fi
-    umask "$original_umask"
     BUILDKITE_GHA_PLAN_DIGEST="$plan_digest" "$runtime_dir/buildkite-gha" "${arguments[@]}"
     exit $?
   fi

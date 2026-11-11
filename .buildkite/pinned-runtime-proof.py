@@ -137,6 +137,7 @@ def platforms():
     assert re.fullmatch(r"[0-9a-f]{40}|v[0-9]+\.[0-9]+\.[0-9]+", plugin_ref)
     source = os.environ.get("PINNED_PROOF_PLAN_SOURCE", "producer")
     assert source in ("producer", "inline", "env")
+    namespace = os.environ.get("PINNED_PROOF_NAMESPACE") == "1"
     repository = os.environ.get("PINNED_PROOF_REPOSITORY", "buildkite-plugins/github-actions-buildkite-plugin")
     assert re.fullmatch(r"[\w.-]+/[\w.-]+", repository)
     owner, name = repository.split("/")
@@ -170,7 +171,7 @@ def platforms():
             "repository": {"owner": owner, "name": name,
                            "clone_url": "https://github.com/" + repository + ".git", "default_branch": "main"},
             "ref": "refs/heads/" + os.environ["BUILDKITE_BRANCH"], "sha": os.environ["BUILDKITE_COMMIT"],
-            "actor": "buildkite-gha-proof", "payload": {"inputs": {"marker": "platform-proof"}}}))
+            "actor": "buildkite-gha-proof", "payload": {"inputs": {"marker": "platform-proof", "namespace": namespace}}}))
         os.environ["PROOF_REAL_AGENT"] = shutil.which("buildkite-agent")
         os.environ["PROOF_ROOT"] = str(root)
         wrapper = root / "buildkite-agent"
@@ -205,7 +206,11 @@ def platforms():
             asset = assets[platform]
             run = {"plan": {"digest": digest, "producer": producer},
                    "runtime": {"platform": platform, "url": asset["browser_download_url"], "sha256": asset["digest"][7:]},
-                   "hosted-tool-cache": platform == "darwin/arm64" or bool(step.get("image"))}
+                   "hosted-tool-cache": "--hosted-tool-cache" in step["command"]}
+            if namespace and platform == "linux/amd64":
+                step.pop("image", None)
+                step["agents"]["nsc-gha-image"] = "ubuntu-24.04"
+                run.update({"namespace": True, "hosted-tool-cache": False})
             if source != "producer":
                 run["plan"] = {"digest": digest, "inline": base64.b64encode(plan_bytes).decode()}
                 event_path = ".buildkite-gha/events/" + plan["event"]["payload_digest"][7:] + ".json"
