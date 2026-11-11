@@ -27,7 +27,7 @@ You can pin the plugin with an exact tag and the `buildkite-gha` runtime with `v
 steps:
   - label: ":github: GitHub Actions"
     plugin:
-      github-actions#v0.15.1:
+      github-actions#v0.16.0:
         version: v0.124.0
 ```
 
