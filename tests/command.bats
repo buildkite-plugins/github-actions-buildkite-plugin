@@ -21,6 +21,7 @@ set -eu
 printf '%s\n' "$*" > "$FIXTURE/arguments"
 printf '%s' "$BUILDKITE_PLUGIN_CONFIGURATION" > "$FIXTURE/configuration"
 printf '%s' "${BUILDKITE_GHA_PLUGIN_RELEASE:-}" > "$FIXTURE/metadata"
+printf '%s' "${BUILDKITE_GHA_EVENT_PAYLOAD:-}" > "$FIXTURE/payload-env"
 printf '%s' "${MISE_DATA_DIR:-}" > "$FIXTURE/cli-cache-root"
 stat -c %a "$(dirname "$0")" > "$FIXTURE/mode" 2>/dev/null || stat -f %Lp "$(dirname "$0")" > "$FIXTURE/mode"
 ls -A "$(dirname "$0")" > "$FIXTURE/files"
@@ -627,9 +628,10 @@ execution_configuration() {
     '.run.runtime.url = "http://example.com/runtime"' '.run.runtime.url += "#sha256=bad"' \
     '.run.runtime.url = "https://user:password@example.com/runtime"' \
     '.run.plan.digest = "bad"' '.run.plan.path = ""' '.run.plan.path += "\u0000"' \
+    '.run.plan.inline = "e30="' 'del(.run.plan.path) | .run.plan.inline = "!bad"' \
     '.run.plan.producer = "11111111-1111-4111-8111-111111111111"' \
     'del(.run.plan.path) | .run.plan.producer = "step-key-not-job-id"' \
-    '.run["hosted-tool-cache"] = "true"'; do
+    '.run["hosted-tool-cache"] = "true"' '.run.namespace = "true"'; do
     export BUILDKITE_PLUGIN_CONFIGURATION="$(jq -c "$mutation" <<< "$configuration")"
     run "$REPO/hooks/command"
     [ "$status" -ne 0 ] || { echo "$mutation: $output"; false; }
@@ -704,5 +706,74 @@ EOF
   [[ "$(cat "$FIXTURE/arguments")" == "run-job --plan $TMPDIR/"*"/plan.json --artifact-producer $BUILDKITE_JOB_ID --hosted-tool-cache" ]]
   [ "$(cat "$MOCK_LOG")" = https://example.com/runtime ]
   [ ! -s "$FIXTURE/metadata" ]
+  assert_clean
+}
+
+@test "macOS uses current identity and preserves runtime status without Linux setup" {
+  export BUILDKITE_PLUGIN_CONFIGURATION="$(execution_configuration | jq -c '.run.runtime.platform = "darwin/arm64" | .run.namespace = true | .run["hosted-tool-cache"] = true')"
+  export MOCK_OS=Darwin MOCK_ARCH=arm64 MOCK_IMPORTER_EXIT=37
+  cat > "$FIXTURE/bin/sudo" <<'EOF'
+#!/bin/bash
+case "$2" in
+  mkdir) mkdir -p "$FIXTURE/mac/runner/hostedtoolcache" ;;
+  chown|chmod) ;; # Leave the parent permissions as mkdir created them.
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x "$FIXTURE/bin/sudo"
+  umask 022
+  run "$REPO/hooks/command"
+  [ "$status" -eq 37 ] || { echo "$output"; false; }
+  [ "$(stat -c %a "$FIXTURE/mac/runner" 2>/dev/null || stat -f %Lp "$FIXTURE/mac/runner")" = 755 ]
+  [[ "$(cat "$FIXTURE/arguments")" == "run-job --plan $TMPDIR/"*"/plan.json --hosted-tool-cache --docker-build-load" ]]
+  [ "$(cat "$MOCK_LOG")" = https://example.com/runtime ]
+  assert_clean
+}
+
+@test "inline events are digest-bound and published by the execution job" {
+  # No privileged setup: this probes materialization and the launch boundary.
+  export MOCK_OS=Darwin MOCK_ARCH=arm64
+  configuration="$(execution_configuration | jq -c '.run.runtime.platform = "darwin/arm64"')"
+  printf '{"marker":"event-bytes-not-for-logs"}' > "$FIXTURE/event.json"
+  event_hash="$(shasum -a 256 "$FIXTURE/event.json" | cut -d' ' -f1)"
+  jq -nc --arg digest "sha256:$event_hash" '{event:{payload_digest:$digest,payload_artifact:true}}' > "$FIXTURE/plan.json"
+  plan_hash="$(shasum -a 256 "$FIXTURE/plan.json" | cut -d' ' -f1)"
+  configuration="$(jq -c --arg plan "$(base64 < "$FIXTURE/plan.json" | tr -d '\n')" --arg event "$(base64 < "$FIXTURE/event.json" | tr -d '\n')" --arg digest "sha256:$plan_hash" \
+    '.run.plan = {digest:$digest,inline:$plan} | .run.event = {inline:$event}' <<< "$configuration")"
+  export REAL_BASE64="$(command -v base64)"
+  cat > "$FIXTURE/bin/base64" <<'EOF'
+#!/bin/bash
+exec "$REAL_BASE64" -d
+EOF
+  cat > "$FIXTURE/bin/buildkite-agent" <<'EOF'
+#!/bin/bash
+set -eu
+[[ "$1 $2" == 'artifact upload' ]]
+cmp "$3" "$FIXTURE/event.json"
+printf '%s\n' "$BUILDKITE_JOB_ID $3" > "$FIXTURE/upload"
+EOF
+  chmod +x "$FIXTURE/bin/"*
+  for mutation in '.run.plan.digest = ("sha256:" + ("0" * 64))' '.run.event.inline = "e30="' '.run.event.inline = ("x" * 65537 | @base64)' '.'; do
+    export BUILDKITE_PLUGIN_CONFIGURATION="$(jq -c "$mutation" <<< "$configuration")"
+    run "$REPO/hooks/command"
+    [[ "$output" != *event-bytes-not-for-logs* ]]
+    if [[ "$mutation" == . ]]; then
+      [ "$status" -eq 0 ] || { echo "$output"; false; }
+      [ "$(cat "$FIXTURE/upload")" = "$BUILDKITE_JOB_ID .buildkite-gha/events/$event_hash.json" ]
+      [[ "$(cat "$FIXTURE/arguments")" == "run-job --plan $TMPDIR/"*"/plan.json --artifact-producer $BUILDKITE_JOB_ID" ]]
+    else
+      [ "$status" -ne 0 ]
+      [[ "$output" == *"checksum verification failed"* || "$output" == *"inline event exceeds 64 KiB"* ]]
+      [ ! -e "$FIXTURE/upload" ]
+      [ ! -e "$FIXTURE/arguments" ]
+    fi
+    assert_clean
+  done
+  export BUILDKITE_GHA_EVENT_PAYLOAD="$(jq -r '.run.event.inline' <<< "$configuration")"
+  export BUILDKITE_PLUGIN_CONFIGURATION="$(jq -c '.run.event = {env:"BUILDKITE_GHA_EVENT_PAYLOAD"}' <<< "$configuration")"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ ! -s "$FIXTURE/payload-env" ]
+  [ "$(cat "$FIXTURE/upload")" = "$BUILDKITE_JOB_ID .buildkite-gha/events/$event_hash.json" ]
   assert_clean
 }

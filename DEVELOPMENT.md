@@ -38,7 +38,7 @@ Each map URL also accepts a checksum fragment. The plugin downloads only its imp
 
 ## Binary acquisition
 
-For custom importers, use a Linux amd64/arm64 or native macOS arm64 agent with the dependencies in [`plugin.yml`](plugin.yml) and outbound HTTPS access to Buildkite and GitHub. Windows importers are not supported. The importer's `agents` configuration selects its queue; `runners` mappings select generated jobs, not the importer.
+For custom importers, use a Linux amd64/arm64 or native macOS arm64 agent with Bash, curl, jq, mktemp, and outbound HTTPS access to Buildkite and GitHub. Windows importers are not supported. The importer's `agents` configuration selects its queue; `runners` mappings select generated jobs, not the importer.
 
 Linux also requires `sha256sum`; macOS requires `shasum`. Historical release archives require `tar`. These dependencies are used by the hook only on their applicable paths, not declared as unconditional agent plugin requirements.
 
@@ -51,6 +51,8 @@ The plugin validates the release tag, selected asset URL, and SHA256 digest on c
 `BUILDKITE_CLEAN_CHECKOUT` values `1`, `t`, `T`, `true`, `TRUE`, and `True` bypass local metadata for that import and refresh the cache entry from Buildkite. They do not bypass Buildkite's shared cache. False, empty, and unrecognized values do not bypass the cache. `BUILDKITE_GIT_CLEAN_FLAGS` does not affect caching. This plugin policy supplements the agent's checkout removal; it does not delete shared binary caches.
 
 The plugin passes the resolved release to the CLI in `BUILDKITE_GHA_PLUGIN_RELEASE`. CLIs with metadata-handoff support use it for counterpart selection without another API request. Historical CLIs retain their own counterpart acquisition. Custom binaries clear this internal environment variable.
+
+The importer hook also sets `BUILDKITE_GHA_PLUGIN_MULTIPLATFORM_RUN=1` to advertise this plugin's expanded execution support. Release metadata alone does not establish that capability: older plugin pins must retain their existing delivery path when paired with a newer CLI.
 
 Official binaries and checksum-pinned custom binaries use a local cache keyed by platform and digest. Each invocation copies cached bytes into a private temporary directory and verifies them before execution. Missing or corrupt entries are downloaded and verified before replacing the cache entry. Plain custom URLs are downloaded each time. Custom URLs never use the release metadata cache. A warm release import makes no network requests for metadata or binaries until its metadata expires. Refreshing metadata does not download the binary again when its digest is unchanged.
 
@@ -75,7 +77,7 @@ In importer mode, the plugin validates acquisition properties only. All other op
 
 ## Execute a pinned plan
 
-The `run` option launches an existing static Linux job plan instead of importing a workflow. It cannot be combined with importer options. Neither the Go nor server-side importer selects this mode automatically.
+The `run` option launches an existing job plan instead of importing a workflow. It cannot be combined with importer options. Importers select this mode only for their supported delivery contracts.
 
 Pin the plugin revision as well as the runtime bytes. Replace the plugin reference, plan digest, and producer UUID below with the values recorded for the build:
 
@@ -93,15 +95,23 @@ plugins:
         hosted-tool-cache: true
 ```
 
-`plan.producer` is the exact job UUID holding `.buildkite-gha/plans/<sha256>.json` and any event artifact, not a step key that could select a different retry. Alternatively, use `plan.path` for a local plan file with the same required digest. Local plans must not require event artifacts from another job. The plugin copies the plan; it never rewrites its bytes or source, event, target, or runtime bindings.
+`plan.producer` is the exact job UUID holding `.buildkite-gha/plans/<sha256>.json` and any event artifact, not a step key that could select a different retry. Alternatively, use `plan.path` for a local plan file or `plan.inline` for base64-encoded plan JSON, with the same required digest. Select exactly one source. The plugin copies or decodes the plan; it never rewrites its bytes or source, event, target, or runtime bindings.
 
-The runtime URL must point to a raw executable over HTTPS, without credentials or a fragment. SHA-256 is mandatory. The platform must match the host (`linux/amd64` or `linux/arm64`). Acquisition reuses the importer's platform-and-digest cache and verifies the private copy before execution. A missing or corrupt entry downloads only that pinned URL. Execution never reads release metadata or resolves `latest`, including on retries or clean checkouts.
+Local and inline plans can supply `event: {inline: <base64 JSON>}` or `event: {env: BUILDKITE_GHA_EVENT_PAYLOAD}`. The latter reads base64 from that separate environment variable and unsets it before execution, keeping large events out of the plugin configuration's per-string environment limit. Select exactly one event source. The plugin verifies decoded bytes against the verified plan's `event.payload_digest`, requires `event.payload_artifact: true`, and uploads `.buildkite-gha/events/<sha256>.json` from the real execution job. It then passes that job's UUID to `run-job --artifact-producer`. The decoded event limit is 64 KiB. An event source cannot override `plan.producer`; without one, local plans must not require an event artifact. Importers retain their own workflow size limits. Payload bytes are not diagnostic output.
+
+The runtime URL must point to a raw executable over HTTPS, without credentials or a fragment. SHA-256 is mandatory. The platform must match the host: `linux/amd64`, `linux/arm64`, `darwin/arm64`, or `windows/amd64`. Acquisition reuses the platform-and-digest cache and verifies the private copy before execution. A missing or corrupt entry downloads only that pinned URL. Execution never reads release metadata or resolves `latest`, including on retries or clean checkouts.
 
 Start the command hook as root or as `runner` with passwordless sudo, on a disposable Linux worker. In addition to the acquisition dependencies, setup requires `getent`, `useradd`, `usermod`, `install`, `sudo`, `chown`, `chmod`, and `find`; Docker socket access may require `groupadd`. Artifact references require `buildkite-agent`. Setup provisions the same non-root `runner` identity, `/home/runner`, passwordless sudo and Docker socket access as the existing generated Linux bootstrap. It grants access to the agent's Job API socket, keeps the plan and executable root-owned and non-writable by `runner`, and preserves PATH, the incoming umask, and runtime job credentials. This is compatibility setup, not a security boundary against a workflow with sudo.
 
-`hosted-tool-cache: true` grants `runner` access to an existing `/opt/hostedtoolcache` and passes `--hosted-tool-cache` to the runtime. It defaults to false for workers without that directory. An existing `BUILDKITE_GHA_MISE_DATA_DIR` and its sibling `runtime` directory are made writable by `runner`; the runtime still owns tool installation. Runtime execution does not set `MISE_DATA_DIR` to the launcher's binary cache. Custom cache-volume ownership and Namespace-specific host options are not part of this entry point; keep those jobs on their existing launcher.
+`hosted-tool-cache: true` grants `runner` access to an existing `/opt/hostedtoolcache` on Linux and passes `--hosted-tool-cache` to the runtime. It defaults to false. An existing `BUILDKITE_GHA_MISE_DATA_DIR` and its sibling `runtime` directory are made writable by `runner`; the runtime still owns tool installation. Runtime execution does not set `MISE_DATA_DIR` to the launcher's binary cache. Custom cache-volume ownership remains on the existing launcher.
 
-The released `run-job` command still validates the plan format, required capabilities, runtime digest, host and target, and hydrates digest-bound event artifacts. Its exit status passes through unchanged (for example, a failed workflow shell command normally yields runtime status 1, not the shell command's status). Existing emitted commands and importer configuration are unchanged. Continuation uploads, macOS and Windows execution remain on their existing paths.
+macOS keeps the agent's current identity, HOME and PATH. When hosted tool caching is enabled, setup creates `/Users/runner/hostedtoolcache` and grants the current user ownership, matching the generated macOS launcher. It requires passwordless sudo for that setup, not Linux user provisioning.
+
+Windows uses the native `command.ps1` hook with PowerShell 7, `curl.exe`, and `buildkite-agent`. It keeps the agent's identity and environment, verifies bytes with SHA-256, and preserves the runtime exit status. Its cache uses `BUILDKITE_GHA_CACHE_DIR`, `MISE_DATA_DIR`, or `BUILDKITE_AGENT_DATA_PATH` in the same order as Unix, then `%LOCALAPPDATA%/buildkite-gha`. Windows supports execution only, not imports.
+
+`namespace: true` selects native Namespace image setup on Linux or macOS: single-node Docker builders load their output into the local daemon; multi-node builders still require `--load`. Linux also restores image tool paths from `/etc/environment` and enables runtime hostname repair. It does not select agents or enable hosted tool caching; those remain the producer's decisions. Do not set it for other worker images.
+
+The released `run-job` command still validates the plan format, required capabilities, runtime digest, host and target, and hydrates digest-bound event artifacts. Its exit status passes through unchanged (for example, a failed workflow shell command normally yields runtime status 1, not the shell command's status). Existing emitted commands and importer configuration are unchanged. Continuation uploads retain their existing path.
 
 ## Run local checks
 
@@ -129,6 +139,8 @@ The released-runtime smoke graphs cover:
 These checks exercise real released CLI integration on Linux x86-64 and native macOS arm64 agents. They do not exercise Windows or Linux arm64 agents, custom binaries, secrets, or a cache service. Source builds are not part of plugin acquisition or CI. Do not add manual hosted builds or releases to local checks.
 
 For an explicitly authorized disposable Linux launcher proof, set `PLUGIN_PINNED_RUNTIME_PROOF=1`. This replaces the normal smoke graph with one released-v0.129.0 importer and one execution job. The job runs the emitted legacy command and the candidate hook from the exact checkout against the same saved plan. It compares identity, permissions, output and exit status, reads a harmless variable through the real Job API, and checks cold/warm downloads and bad-digest rejection. Artifact uploads and downloads use the real agent; the proof only intercepts pipeline emission to install the comparison command. It does not exercise plugin checkout installation, cross-worker cache persistence or other platforms.
+
+For the four-platform scheduled plugin gate, set `PLUGIN_PINNED_RUNTIME_PROOF=platforms`, `GITHUB_EVENT_NAME=workflow_dispatch`, and `PINNED_PROOF_LINUX_QUEUE`, `PINNED_PROOF_ARM_QUEUE`, `PINNED_PROOF_MAC_QUEUE`, and `PINNED_PROOF_WINDOWS_QUEUE` to existing matching queues. `PINNED_PROOF_VERSION` defaults to `0.133.0`; `PINNED_PROOF_PLUGIN_REF` defaults to the build commit. Run with `PINNED_PROOF_PLAN_SOURCE=producer` and again with `inline` or `env`. Set `PINNED_PROOF_NAMESPACE=1` with a compatible Linux queue to exercise native image tools and Docker loading. The proof uses released plans and binaries, normal plugin installation, cross-platform output transport, provider tokens, and allowed-failure commands. It replaces legacy commands with the plugin contract before scheduling, so it proves the consumer, not unchanged importer emission. Inspect job logs, result manifests, and the `platform-runtime-plans.json` receipt; a green soft-failed job alone does not prove its workflow ran. Later importer gates must schedule their emitted jobs unchanged. None of these checks proves cross-worker cache reuse or scheduler retries.
 
 ## Release the plugin
 
