@@ -1,0 +1,17 @@
+name: Pinned runtime proof
+on:
+  push:
+jobs:
+  pinned-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify runtime identity and Job API access
+        shell: bash
+        run: |
+          test "$(id -un)" = runner
+          test "$HOME" = /home/runner
+          sudo -n true
+          printf 'PROOF user=%s home=%s umask=%s\n' "$(id -un)" "$HOME" "$(umask)"
+          python3 /tmp/pinned-runtime-proof.py probe
+          echo 'PROOF output=hello-from-saved-plan'
+          exit "$(cat /tmp/pinned-runtime-proof-exit)"

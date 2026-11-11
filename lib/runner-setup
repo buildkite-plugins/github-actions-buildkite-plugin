@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Linux execution setup, shared by all producers using the plugin's run mode.
+set -euo pipefail
+
+runtime_dir="$1"
+hosted_tool_cache="$2"
+error() { echo "github-actions plugin: $*" >&2; exit 1; }
+for command in getent useradd usermod install sudo; do
+  command -v "$command" >/dev/null || error "runner setup requires $command"
+done
+if getent passwd runner >/dev/null; then
+  [[ "$(id -u runner)" != 0 && "$(getent passwd runner | cut -d: -f6)" == /home/runner ]] || error "existing runner user is incompatible"
+else
+  useradd --create-home --home-dir /home/runner --shell /bin/bash runner
+fi
+runner_group="$(id -gn runner)"
+install -d -o runner -g "$runner_group" -m 0700 /home/runner /tmp/buildkite-gha-runner
+chown -R "runner:$runner_group" /home/runner /tmp/buildkite-gha-runner
+install -d -m 0755 /etc/sudoers.d
+printf '%s\n' 'runner ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/buildkite-gha-runner
+chmod 0440 /etc/sudoers.d/buildkite-gha-runner
+if command -v visudo >/dev/null; then
+  visudo -c -f /etc/sudoers.d/buildkite-gha-runner >/dev/null
+fi
+if [[ -S /var/run/docker.sock ]]; then
+  docker_gid="$(stat -c %g /var/run/docker.sock)"
+  docker_group="$(getent group "$docker_gid" | cut -d: -f1 || true)"
+  if [[ -z "$docker_group" ]]; then
+    docker_group="buildkite-gha-docker-$docker_gid"
+    groupadd --gid "$docker_gid" "$docker_group"
+  fi
+  usermod --append --groups "$docker_group" runner
+fi
+if [[ -n "${BUILDKITE_AGENT_JOB_API_SOCKET:-}" ]]; then
+  [[ -S "$BUILDKITE_AGENT_JOB_API_SOCKET" ]] || error "Buildkite Job API socket is unavailable"
+  grant_traverse() (
+    path="$1"
+    parent="$(dirname "$path")"
+    [[ "$parent" == "$path" ]] || grant_traverse "$parent"
+    if ! sudo -n --user runner -- test -x "$path"; then
+      chgrp "$runner_group" "$path"
+      chmod g+x "$path"
+    fi
+  )
+  grant_traverse "$(dirname "$BUILDKITE_AGENT_JOB_API_SOCKET")"
+  chgrp "$runner_group" "$BUILDKITE_AGENT_JOB_API_SOCKET"
+  chmod g+rw "$BUILDKITE_AGENT_JOB_API_SOCKET"
+fi
+# These copies remain root-owned and not writable by the workflow user.
+find "$runtime_dir" -type d -exec chmod a+rx {} +
+chown "root:$runner_group" "$runtime_dir/buildkite-gha" "$runtime_dir/plan.json"
+chmod 0550 "$runtime_dir/buildkite-gha"
+chmod 0440 "$runtime_dir/plan.json"
+if [[ -n "${BUILDKITE_GHA_MISE_DATA_DIR:-}" ]]; then
+  # The runtime installs its own pinned mise under this sibling directory.
+  # Do not couple the launcher to a particular runtime's mise version.
+  mise_runtime_dir="$(dirname "$BUILDKITE_GHA_MISE_DATA_DIR")/runtime"
+  install -d -o runner -g "$runner_group" -m 0755 "$BUILDKITE_GHA_MISE_DATA_DIR" "$mise_runtime_dir"
+  chown -R "runner:$runner_group" "$BUILDKITE_GHA_MISE_DATA_DIR" "$mise_runtime_dir"
+  chmod -R u+rwX "$BUILDKITE_GHA_MISE_DATA_DIR" "$mise_runtime_dir"
+fi
+if [[ "$hosted_tool_cache" == true ]]; then
+  [[ -d /opt/hostedtoolcache ]] || error "hosted tool cache requires /opt/hostedtoolcache"
+  chown -R "runner:$runner_group" /opt/hostedtoolcache
+  chmod -R u+rwX /opt/hostedtoolcache
+fi
+sudo -n --user runner -- env HOME=/home/runner TMPDIR=/tmp/buildkite-gha-runner bash -euc '
+  test "$(id -un)" = runner && test "$(id -u)" -ne 0
+  test "$HOME" = /home/runner && test -w "$TMPDIR"
+  test -x "$1/buildkite-gha" && ! test -w "$1/buildkite-gha"
+  test -r "$1/plan.json" && ! test -w "$1/plan.json"
+  sudo -n true
+  if test -S /var/run/docker.sock; then test -w /var/run/docker.sock; fi
+  if test -n "$2"; then test -r "$2" && test -w "$2"; fi
+' -- "$runtime_dir" "${BUILDKITE_AGENT_JOB_API_SOCKET:-}"

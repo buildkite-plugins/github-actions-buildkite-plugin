@@ -608,3 +608,101 @@ EOF
   [ ! -e "$FIXTURE/arguments" ]
   assert_clean
 }
+
+execution_configuration() {
+  printf 'saved plan bytes\n' > "$FIXTURE/plan.json"
+  local binary_hash plan_hash
+  binary_hash="$(shasum -a 256 "$FIXTURE/buildkite-gha")"
+  plan_hash="$(shasum -a 256 "$FIXTURE/plan.json")"
+  jq -nc --arg binary "${binary_hash%% *}" --arg plan "sha256:${plan_hash%% *}" --arg path "$FIXTURE/plan.json" \
+    '{run: {plan: {path: $path, digest: $plan}, runtime: {platform: "linux/amd64", url: "https://example.com/runtime", sha256: $binary}}}'
+}
+
+@test "pinned execution rejects invalid references and wrong platforms before acquisition" {
+  configuration="$(execution_configuration)"
+  for mutation in \
+    '.version = "latest"' '.workflow = "ci.yml"' '.run.extra = true' \
+    '.run.runtime.platform = "linux/arm64"' '.run.runtime.platform = "darwin/arm64"' \
+    'del(.run.runtime.sha256)' '.run.runtime.sha256 = "bad"' '.run.runtime.sha256 += "\n"' \
+    '.run.runtime.url = "http://example.com/runtime"' '.run.runtime.url += "#sha256=bad"' \
+    '.run.runtime.url = "https://user:password@example.com/runtime"' \
+    '.run.plan.digest = "bad"' '.run.plan.path = ""' '.run.plan.path += "\u0000"' \
+    '.run.plan.producer = "11111111-1111-4111-8111-111111111111"' \
+    'del(.run.plan.path) | .run.plan.producer = "step-key-not-job-id"' \
+    '.run["hosted-tool-cache"] = "true"'; do
+    export BUILDKITE_PLUGIN_CONFIGURATION="$(jq -c "$mutation" <<< "$configuration")"
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ] || { echo "$mutation: $output"; false; }
+    [ ! -s "$MOCK_LOG" ]
+    [ ! -e "$FIXTURE/arguments" ]
+    assert_clean
+  done
+}
+
+@test "pinned execution verifies binary and plan bytes without release lookup" {
+  export BUILDKITE_PLUGIN_CONFIGURATION="$(execution_configuration)"
+  printf corrupt >> "$FIXTURE/buildkite-gha"
+  run "$REPO/hooks/command"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"binary checksum verification failed"* ]]
+  [ "$(cat "$MOCK_LOG")" = https://example.com/runtime ]
+  [ ! -e "$FIXTURE/arguments" ]
+  assert_clean
+
+  export BUILDKITE_PLUGIN_CONFIGURATION="$(execution_configuration)"
+  printf corrupt >> "$FIXTURE/plan.json"
+  for attempt in cold warm; do
+    : > "$MOCK_LOG"
+    run "$REPO/hooks/command"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"plan checksum verification failed"* ]]
+    if [[ "$attempt" == cold ]]; then
+      [ "$(cat "$MOCK_LOG")" = https://example.com/runtime ]
+    else
+      [ ! -s "$MOCK_LOG" ]
+    fi
+    [ ! -e "$FIXTURE/arguments" ]
+    assert_clean
+  done
+}
+
+@test "pinned launcher passes the verified plan, producer and runtime exit status" {
+  # This is a launch-boundary test, not a runner identity or real-runtime proof.
+  # Privileged setup is exercised separately on an isolated Linux host.
+  export BUILDKITE_PLUGIN_CONFIGURATION="$(execution_configuration | jq -c --arg producer "$BUILDKITE_JOB_ID" '.run.plan |= (del(.path) + {producer: $producer}) | .run["hosted-tool-cache"] = true')"
+  cat > "$FIXTURE/bin/buildkite-agent" <<'EOF'
+#!/bin/bash
+set -eu
+[[ "$1 $2" == 'artifact download' && "$5 $6" == "--step $BUILDKITE_JOB_ID" ]]
+[[ "$3" == ".buildkite-gha/plans/$(shasum -a 256 "$FIXTURE/plan.json" | cut -d' ' -f1).json" ]]
+mkdir -p "$4/$(dirname "$3")"
+cp "$FIXTURE/plan.json" "$4/$3"
+EOF
+  cat > "$FIXTURE/bin/bash" <<'EOF'
+#!/bin/bash
+if [[ "$1" == */lib/runner-setup ]]; then
+  [[ "$3" == true ]]
+  exit
+fi
+exec /bin/bash "$@"
+EOF
+  cat > "$FIXTURE/bin/id" <<'EOF'
+#!/bin/bash
+echo 0
+EOF
+  cat > "$FIXTURE/bin/sudo" <<'EOF'
+#!/bin/bash
+set -eu
+[[ "$1 $2 $3 $4 $5" == '-n --preserve-env --user runner --' ]]
+shift 5
+exec "$@"
+EOF
+  chmod +x "$FIXTURE/bin/"*
+  export MOCK_IMPORTER_EXIT=37
+  run "$REPO/hooks/command"
+  [ "$status" -eq 37 ] || { echo "$output"; false; }
+  [[ "$(cat "$FIXTURE/arguments")" == "run-job --plan $TMPDIR/"*"/plan.json --artifact-producer $BUILDKITE_JOB_ID --hosted-tool-cache" ]]
+  [ "$(cat "$MOCK_LOG")" = https://example.com/runtime ]
+  [ ! -s "$FIXTURE/metadata" ]
+  assert_clean
+}
