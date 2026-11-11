@@ -187,6 +187,7 @@ def platforms():
             with urllib.request.urlopen(asset["browser_download_url"]) as response:
                 counterpart.write_bytes(response.read())
             assert "sha256:" + hashlib.sha256(counterpart.read_bytes()).hexdigest() == asset["digest"]
+            counterpart.chmod(0o700)
             arguments += ["--runtime-distribution", platform + "=" + str(counterpart)]
         subprocess.run([*arguments, ".github/workflows/pinned-runtime-platforms.yml"], env=env, check=True)
         pipeline = json.loads(agent("pipeline", "upload", "--dry-run", "--no-interpolation", "--format", "json", str(root / "pipeline.yml")))
