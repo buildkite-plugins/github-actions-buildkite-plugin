@@ -724,7 +724,7 @@ EOF
   umask 022
   run "$REPO/hooks/command"
   [ "$status" -eq 37 ] || { echo "$output"; false; }
-  [ "$(stat -c %a "$FIXTURE/mac/runner")" = 755 ]
+  [ "$(stat -c %a "$FIXTURE/mac/runner" 2>/dev/null || stat -f %Lp "$FIXTURE/mac/runner")" = 755 ]
   [[ "$(cat "$FIXTURE/arguments")" == "run-job --plan $TMPDIR/"*"/plan.json --hosted-tool-cache --docker-build-load" ]]
   [ "$(cat "$MOCK_LOG")" = https://example.com/runtime ]
   assert_clean
