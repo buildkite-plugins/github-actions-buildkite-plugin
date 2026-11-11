@@ -729,9 +729,10 @@ EOF
   plan_hash="$(shasum -a 256 "$FIXTURE/plan.json" | cut -d' ' -f1)"
   configuration="$(jq -c --arg plan "$(base64 < "$FIXTURE/plan.json" | tr -d '\n')" --arg event "$(base64 < "$FIXTURE/event.json" | tr -d '\n')" --arg digest "sha256:$plan_hash" \
     '.run.plan = {digest:$digest,inline:$plan} | .run.event = {inline:$event}' <<< "$configuration")"
+  export REAL_BASE64="$(command -v base64)"
   cat > "$FIXTURE/bin/base64" <<'EOF'
 #!/bin/bash
-exec /usr/bin/base64 -d
+exec "$REAL_BASE64" -d
 EOF
   cat > "$FIXTURE/bin/buildkite-agent" <<'EOF'
 #!/bin/bash

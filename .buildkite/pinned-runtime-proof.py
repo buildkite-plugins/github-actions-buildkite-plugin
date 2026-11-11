@@ -136,7 +136,10 @@ def platforms():
     plugin_ref = os.environ.get("PINNED_PROOF_PLUGIN_REF", os.environ["BUILDKITE_COMMIT"])
     assert re.fullmatch(r"[0-9a-f]{40}|v[0-9]+\.[0-9]+\.[0-9]+", plugin_ref)
     source = os.environ.get("PINNED_PROOF_PLAN_SOURCE", "producer")
-    assert source in ("producer", "inline")
+    assert source in ("producer", "inline", "env")
+    repository = os.environ.get("PINNED_PROOF_REPOSITORY", "buildkite-plugins/github-actions-buildkite-plugin")
+    assert re.fullmatch(r"[\w.-]+/[\w.-]+", repository)
+    owner, name = repository.split("/")
     producer = os.environ["BUILDKITE_JOB_ID"]
     endpoint = os.environ["BUILDKITE_AGENT_ENDPOINT"].rstrip("/")
     assert endpoint.startswith("https://")
@@ -164,8 +167,8 @@ def platforms():
         binary.chmod(0o700)
         event = root / "event.json"
         event.write_text(json.dumps({"provider": "github", "event": "workflow_dispatch",
-            "repository": {"owner": "buildkite-plugins", "name": "github-actions-buildkite-plugin",
-                           "clone_url": "https://github.com/buildkite-plugins/github-actions-buildkite-plugin.git", "default_branch": "main"},
+            "repository": {"owner": owner, "name": name,
+                           "clone_url": "https://github.com/" + repository + ".git", "default_branch": "main"},
             "ref": "refs/heads/" + os.environ["BUILDKITE_BRANCH"], "sha": os.environ["BUILDKITE_COMMIT"],
             "actor": "buildkite-gha-proof", "payload": {"inputs": {"marker": "platform-proof"}}}))
         os.environ["PROOF_REAL_AGENT"] = shutil.which("buildkite-agent")
@@ -202,11 +205,16 @@ def platforms():
             run = {"plan": {"digest": digest, "producer": producer},
                    "runtime": {"platform": platform, "url": asset["browser_download_url"], "sha256": asset["digest"][7:]},
                    "hosted-tool-cache": platform == "darwin/arm64" or bool(step.get("image"))}
-            if source == "inline":
+            if source != "producer":
                 run["plan"] = {"digest": digest, "inline": base64.b64encode(plan_bytes).decode()}
                 event_path = ".buildkite-gha/events/" + plan["event"]["payload_digest"][7:] + ".json"
                 agent("artifact", "download", event_path, str(root), "--step", producer)
-                run["event"] = {"inline": base64.b64encode((root / event_path).read_bytes()).decode()}
+                payload = base64.b64encode((root / event_path).read_bytes()).decode()
+                if source == "env":
+                    run["event"] = {"env": "BUILDKITE_GHA_EVENT_PAYLOAD"}
+                    step.setdefault("env", {})["BUILDKITE_GHA_EVENT_PAYLOAD"] = payload
+                else:
+                    run["event"] = {"inline": payload}
             # The plugin-stage proof deliberately changes only delivery. Later
             # importer proofs must submit their emitted steps without rewriting.
             step.pop("command", None)
