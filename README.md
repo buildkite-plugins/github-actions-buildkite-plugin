@@ -27,11 +27,11 @@ You can pin the plugin with an exact tag and the `buildkite-gha` runtime with `v
 steps:
   - label: ":github: GitHub Actions"
     plugin:
-      github-actions#v0.14.0:
+      github-actions#v0.15.0:
         version: v0.124.0
 ```
 
-We recommend omitting both pins to follow the latest stable versions, especially during the preview. `version` also accepts `latest` or an exact release tag without the `v` prefix, including prereleases.
+We recommend omitting both pins to follow the latest stable versions, especially during the preview. `version` also accepts `latest` or an exact release tag, including prereleases.
 
 Additional plugin configuration is passed to [the `buildkite-gha` runtime](https://github.com/buildkite/buildkite-gha). See [the documentation](https://buildkite.com/docs/pipelines/migration/run-github-actions-workflows) for supported options. If you pin an older runtime, check that it supports the options you use.
 
