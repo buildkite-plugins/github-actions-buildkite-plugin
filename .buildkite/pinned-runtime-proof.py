@@ -128,6 +128,63 @@ def execute(producer):
         print("PROOF PASS: same saved plan, real artifacts, real Job API, identity, permissions, status, cold/warm and bad digest", flush=True)
 
 
+def cache_probe():
+    """Same-worker acquisition proof, not scheduler retry or cross-worker caching."""
+    config = json.loads(os.environ["PINNED_CACHE_CONFIGURATION"])
+    windows = sys.platform == "win32"
+    with tempfile.TemporaryDirectory(prefix="runtime-cache-proof-") as temporary:
+        root = Path(temporary)
+        log = root / "requests.jsonl"
+        transport = root / "transport"
+        transport.mkdir()
+        env = dict(os.environ, BUILDKITE_PLUGIN_CONFIGURATION=json.dumps(config),
+                   BUILDKITE_GHA_CACHE_DIR=str(root / "cache"), PROOF_CURL_LOG=str(log),
+                   BUILDKITE_GHA_TELEMETRY_DISABLED="true", BUILDKITE_CLEAN_CHECKOUT="false")
+        if windows:
+            env["PROOF_REAL_CURL"] = shutil.which("curl.exe")
+            wrapper = root / "invoke.ps1"
+            wrapper.write_text('''function global:curl.exe {
+    if ($args[11] -like '*github-actions/releases/*') { $kind = 'release' } else { $kind = 'binary' }
+    Add-Content -LiteralPath $env:PROOF_CURL_LOG -Value $kind
+    & $env:PROOF_REAL_CURL @args
+    $global:LASTEXITCODE = $LASTEXITCODE
+}
+& $env:PROOF_COMMAND
+exit $LASTEXITCODE
+''')
+            env["PROOF_COMMAND"] = str(REPO / "hooks/command.ps1")
+            command = ["pwsh", "-NoProfile", "-File", str(wrapper)]
+        else:
+            env["PROOF_REAL_CURL"] = shutil.which("curl")
+            wrapper = transport / "curl"
+            wrapper.write_text('''#!/bin/bash
+case "${12}" in *github-actions/releases/*) kind=release;; *) kind=binary;; esac
+printf '%s\\n' "$kind" >> "$PROOF_CURL_LOG"
+exec "$PROOF_REAL_CURL" "$@"
+''')
+            wrapper.chmod(0o755)
+            env["PATH"] = str(transport) + os.pathsep + env["PATH"]
+            command = [str(REPO / "hooks/command")]
+        observations = []
+        for phase in ("cold", "warm"):
+            log.write_text("")
+            if phase == "warm" and config.get("version", "latest") != "latest":
+                for metadata in (root / "cache/releases").rglob("*.json"):
+                    os.utime(metadata, (1, 1))
+                env["BUILDKITE_CLEAN_CHECKOUT"] = "true"
+            result = subprocess.run(command, env=env)
+            assert result.returncode == 0, (phase, result.returncode)
+            requests = log.read_text(encoding="utf-8-sig").splitlines()
+            expected = ["release", "binary"] if phase == "cold" and "binary" not in config else (["binary"] if phase == "cold" else [])
+            assert requests == expected, (phase, requests, expected)
+            observations.append({"phase": phase, "requests": requests, "exit_status": result.returncode})
+            print(f"CACHE_PROOF {phase}: release={requests.count('release')} binary={requests.count('binary')} status=0", flush=True)
+        receipt = root / "runtime-cache-receipt.json"
+        receipt.write_text(json.dumps({"platform": sys.platform, "observations": observations,
+                                       "scope": "same worker; real network, runtime, artifacts and Job API"}))
+        agent("artifact", "upload", receipt.name, cwd=root)
+
+
 def platforms():
     """Test the plugin before a released importer emits the expanded contract."""
     assert os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
@@ -239,6 +296,21 @@ def platforms():
                 else:
                     config["version"] = "latest" if selector == "latest" else "v" + version
             step["plugins"] = [{"github-actions#" + plugin_ref: config}]
+            if os.environ.get("PINNED_PROOF_CACHE") == "1":
+                assert selector != "legacy"
+                step.pop("plugins")
+                step.setdefault("env", {}).update(PINNED_CACHE_CONFIGURATION=json.dumps(config),
+                                                  PINNED_CACHE_PLUGIN_REF=plugin_ref)
+                bootstrap = ('import os,subprocess,sys,tempfile; '
+                             't=tempfile.TemporaryDirectory(prefix="plugin-cache-proof-"); '
+                             'subprocess.run(["git","clone","--quiet","https://github.com/buildkite-plugins/github-actions-buildkite-plugin.git",t.name],check=True); '
+                             'subprocess.run(["git","checkout","--quiet",os.environ["PINNED_CACHE_PLUGIN_REF"]],cwd=t.name,check=True); '
+                             'sys.exit(subprocess.call([sys.executable,t.name+"/.buildkite/pinned-runtime-proof.py","cache"]))')
+                python = "python" if platform == "windows/amd64" else "python3"
+                step["command"] = python + " -c '" + bootstrap + "'"
+                if platform == "windows/amd64":
+                    script = step["command"] + "; exit $LASTEXITCODE"
+                    step["command"] = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + base64.b64encode(script.encode("utf-16le")).decode()
             step.setdefault("env", {})["BUILDKITE_PLUGIN_VALIDATION"] = "true"
             records.append({"key": step["key"], "platform": platform, "plan": digest, "source": source,
                             "runtime": asset["digest"], "event": plan["event"]["payload_digest"]})
@@ -246,9 +318,13 @@ def platforms():
         receipt = root / "platform-runtime-plans.json"
         receipt.write_text(json.dumps(records, indent=2))
         agent("artifact", "upload", receipt.name, cwd=root)
+        if os.environ.get("PINNED_PROOF_CACHE") == "1":
+            pipeline = {"steps": [step for step in steps if not step.get("soft_fail")]}
+            assert len(pipeline["steps"]) == 4
+            print("CACHE_PROOF: same-worker replay; not unchanged emission, cross-worker cache or scheduler retry evidence")
         agent("pipeline", "upload", "--no-interpolation", input=json.dumps(pipeline).encode())
-        print(f"Scheduled {len(records)} native jobs with plugin {plugin_ref}, runtime v{version}, source={source}")
+        print(f"Scheduled native jobs with plugin {plugin_ref}, runtime v{version}, source={source}")
 
 
 if __name__ == "__main__":
-    {"import": prepare, "capture": capture, "probe": probe, "platforms": platforms, "run": lambda: execute(sys.argv[2])}[sys.argv[1]]()
+    {"import": prepare, "capture": capture, "probe": probe, "platforms": platforms, "cache": cache_probe, "run": lambda: execute(sys.argv[2])}[sys.argv[1]]()
