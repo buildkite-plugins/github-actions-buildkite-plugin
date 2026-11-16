@@ -166,19 +166,35 @@ exec "$PROOF_REAL_CURL" "$@"
             env["PATH"] = str(transport) + os.pathsep + env["PATH"]
             command = [str(REPO / "hooks/command")]
         observations = []
-        for phase in ("cold", "warm"):
+        phases = ("cold", "warm", "unsigned", "bad-digest") if "binary" in config else ("cold", "warm")
+        for phase in phases:
             log.write_text("")
+            selected = json.loads(json.dumps(config))
+            if phase == "warm" and selected.get("version") == "latest":
+                selected.pop("version")  # Standalone run also defaults to latest.
+            if phase in ("unsigned", "bad-digest"):
+                selected["binary"] = {platform: url.split("#", 1)[0] + ("#sha256=" + "0" * 64 if phase == "bad-digest" else "")
+                                      for platform, url in selected["binary"].items()}
+            env["BUILDKITE_PLUGIN_CONFIGURATION"] = json.dumps(selected)
             if phase == "warm" and config.get("version", "latest") != "latest":
                 for metadata in (root / "cache/releases").rglob("*.json"):
                     os.utime(metadata, (1, 1))
                 env["BUILDKITE_CLEAN_CHECKOUT"] = "true"
-            result = subprocess.run(command, env=env)
-            assert result.returncode == 0, (phase, result.returncode)
+            result = subprocess.run(command, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            print(result.stdout, flush=True)
+            # Independent intentional-failure plans avoid duplicate prerequisite
+            # records from replaying a producer. Status 78 proves exit 37 ran.
+            expected_status = 1 if phase == "bad-digest" else 78
+            assert result.returncode == expected_status, (phase, result.returncode)
+            if phase == "bad-digest":
+                assert "checksum verification failed" in result.stdout and "PLATFORM_PROOF" not in result.stdout
+            else:
+                assert "expected failure=37" in result.stdout
             requests = log.read_text(encoding="utf-8-sig").splitlines()
-            expected = ["release", "binary"] if phase == "cold" and "binary" not in config else (["binary"] if phase == "cold" else [])
+            expected = ["release", "binary"] if phase == "cold" and "binary" not in config else ([] if phase == "warm" else ["binary"])
             assert requests == expected, (phase, requests, expected)
             observations.append({"phase": phase, "requests": requests, "exit_status": result.returncode})
-            print(f"CACHE_PROOF {phase}: release={requests.count('release')} binary={requests.count('binary')} status=0", flush=True)
+            print(f"CACHE_PROOF {phase}: release={requests.count('release')} binary={requests.count('binary')} status={result.returncode}", flush=True)
         receipt = root / "runtime-cache-receipt.json"
         receipt.write_text(json.dumps({"platform": sys.platform, "observations": observations,
                                        "scope": "same worker; real network, runtime, artifacts and Job API"}))
@@ -310,7 +326,7 @@ def platforms():
                 step["command"] = python + " -c '" + bootstrap + "'"
                 if platform == "windows/amd64":
                     script = step["command"] + "; exit $LASTEXITCODE"
-                    step["command"] = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + base64.b64encode(script.encode("utf-16le")).decode()
+                    step["command"] = "pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + base64.b64encode(script.encode("utf-16le")).decode()
             step.setdefault("env", {})["BUILDKITE_PLUGIN_VALIDATION"] = "true"
             records.append({"key": step["key"], "platform": platform, "plan": digest, "source": source,
                             "runtime": asset["digest"], "event": plan["event"]["payload_digest"]})
@@ -319,7 +335,7 @@ def platforms():
         receipt.write_text(json.dumps(records, indent=2))
         agent("artifact", "upload", receipt.name, cwd=root)
         if os.environ.get("PINNED_PROOF_CACHE") == "1":
-            pipeline = {"steps": [step for step in steps if not step.get("soft_fail")]}
+            pipeline = {"steps": [step for step in steps if step.get("soft_fail")]}
             assert len(pipeline["steps"]) == 4
             print("CACHE_PROOF: same-worker replay; not unchanged emission, cross-worker cache or scheduler retry evidence")
         agent("pipeline", "upload", "--no-interpolation", input=json.dumps(pipeline).encode())
