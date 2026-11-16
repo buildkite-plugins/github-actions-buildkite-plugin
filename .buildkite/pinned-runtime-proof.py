@@ -132,6 +132,8 @@ def platforms():
     """Test the plugin before a released importer emits the expanded contract."""
     assert os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
     version = os.environ.get("PINNED_PROOF_VERSION", "0.133.0")
+    selector = os.environ.get("PINNED_PROOF_SELECTOR", "legacy")
+    assert selector in ("legacy", "version", "latest", "binary")
     assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version)
     plugin_ref = os.environ.get("PINNED_PROOF_PLUGIN_REF", os.environ["BUILDKITE_COMMIT"])
     assert re.fullmatch(r"[0-9a-f]{40}|v[0-9]+\.[0-9]+\.[0-9]+", plugin_ref)
@@ -144,10 +146,13 @@ def platforms():
     producer = os.environ["BUILDKITE_JOB_ID"]
     endpoint = os.environ["BUILDKITE_AGENT_ENDPOINT"].rstrip("/")
     assert endpoint.startswith("https://")
-    request = urllib.request.Request(f"{endpoint}/jobs/{producer}/github-actions/releases/tags/v{version}",
+    release_path = "latest" if selector == "latest" else f"tags/v{version}"
+    request = urllib.request.Request(f"{endpoint}/jobs/{producer}/github-actions/releases/{release_path}",
                                      headers={"Authorization": "Token " + os.environ["BUILDKITE_AGENT_ACCESS_TOKEN"]})
     with urllib.request.urlopen(request) as response:
         release = json.load(response)
+    if selector == "latest":
+        version = release["tag_name"].removeprefix("v")
     assert release["tag_name"] == "v" + version
     names = {"linux/amd64": "linux_x86_64", "linux/arm64": "linux_arm64",
              "darwin/arm64": "darwin_arm64", "windows/amd64": "windows_x86_64.exe"}
@@ -224,7 +229,16 @@ def platforms():
             # The plugin-stage proof deliberately changes only delivery. Later
             # importer proofs must submit their emitted steps without rewriting.
             step.pop("command", None)
-            step["plugins"] = [{"github-actions#" + plugin_ref: {"run": run}}]
+            config = {"run": run}
+            if selector != "legacy":
+                run.pop("runtime")
+                run.pop("namespace", None)
+                config["hosted-tool-cache"] = run.pop("hosted-tool-cache")
+                if selector == "binary":
+                    config["binary"] = {p: a["browser_download_url"] + "#sha256=" + a["digest"][7:] for p, a in assets.items()}
+                else:
+                    config["version"] = "latest" if selector == "latest" else "v" + version
+            step["plugins"] = [{"github-actions#" + plugin_ref: config}]
             step.setdefault("env", {})["BUILDKITE_PLUGIN_VALIDATION"] = "true"
             records.append({"key": step["key"], "platform": platform, "plan": digest, "source": source,
                             "runtime": asset["digest"], "event": plan["event"]["payload_digest"]})

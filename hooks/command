@@ -2,7 +2,7 @@
 set -euo pipefail
 original_umask="$(umask)"
 umask 077
-unset BUILDKITE_GHA_PLUGIN_MULTIPLATFORM_RUN
+unset BUILDKITE_GHA_PLUGIN_MULTIPLATFORM_RUN BUILDKITE_GHA_PLUGIN_RUNTIME_SELECTION
 
 error() { echo "github-actions plugin: $*" >&2; exit 1; }
 download() {
@@ -116,7 +116,10 @@ if jq -e 'has("run")' <<< "$configuration" >/dev/null; then
     def text: type == "string" and length > 0 and (test("[\u0000-\u001f\u007f]") | not);
     def digest: type == "string" and test("^sha256:[0-9a-f]{64}$") and length == 71;
     def base64: text and test("^[A-Za-z0-9+/]+={0,2}$") and length % 4 == 0;
-    keys == ["run"] and (.run | type == "object" and
+    (keys - ["run", "version", "binary", "hosted-tool-cache"] | length == 0) and
+    (if has("hosted-tool-cache") then .["hosted-tool-cache"] | type == "boolean" else true end) and
+    (if .run | has("runtime") then (has("version") or has("binary") | not) else true end) and
+    (.run | type == "object" and
       (keys - ["plan", "event", "runtime", "hosted-tool-cache", "namespace"] | length == 0) and
       (.plan | type == "object" and
         (keys == ["digest", "path"] or keys == ["digest", "producer"] or keys == ["digest", "inline"]) and
@@ -125,13 +128,16 @@ if jq -e 'has("run")' <<< "$configuration" >/dev/null; then
       (if has("event") then (.plan | has("producer") | not) and (.event | type == "object" and
         ((keys == ["inline"] and (.inline | base64 and length <= 87384)) or
          (keys == ["env"] and .env == "BUILDKITE_GHA_EVENT_PAYLOAD" and (env.BUILDKITE_GHA_EVENT_PAYLOAD | base64 and length <= 87384)))) else true end) and
-      (.runtime | type == "object" and keys == ["platform", "sha256", "url"] and
+      (if has("runtime") then (.runtime | type == "object" and keys == ["platform", "sha256", "url"] and
         (.platform == "linux/amd64" or .platform == "linux/arm64" or .platform == "darwin/arm64") and
         (.sha256 | type == "string" and test("^[0-9a-fA-F]{64}$") and length == 64) and
-        (.url | type == "string" and test("^https://[^/@\\s?#]+([/?][^\\s#]*)?$") and (test("[\u0000-\u0020\u007f]") | not))) and
+        (.url | type == "string" and test("^https://[^/@\\s?#]+([/?][^\\s#]*)?$") and (test("[\u0000-\u0020\u007f]") | not))) else true end) and
       (if has("hosted-tool-cache") then .["hosted-tool-cache"] | type == "boolean" else true end) and
       (if has("namespace") then .namespace | type == "boolean" else true end))
-  ' <<< "$configuration" >/dev/null || error "run requires a plan digest and path, inline or producer, and a pinned runtime platform, HTTPS URL and SHA256; importer options cannot be combined with run"
+  ' <<< "$configuration" >/dev/null || error "run requires a plan digest and path, inline or producer; use version, binary or a valid legacy runtime descriptor, without importer options"
+fi
+# Legacy descriptors remain readable. New import and run callers share selectors.
+if jq -e '.run | has("runtime")' <<< "$configuration" >/dev/null; then
   [[ "$(jq -r '.run.runtime.platform' <<< "$configuration")" == "$platform" ]] || error "runtime platform does not match '$platform'"
   binary_url="$(jq -r '.run.runtime | .url + "#sha256=" + .sha256' <<< "$configuration")"
 elif jq -e 'has("binary")' <<< "$configuration" >/dev/null; then
@@ -182,13 +188,13 @@ else
   fi
   metadata_cache="${cache:+$cache/releases/$release_path.json}"
   selected=''
-  case "${BUILDKITE_CLEAN_CHECKOUT:-false}" in
-    1|t|T|TRUE|true|True) ;; # Match the agent's strconv.ParseBool true values.
+  case "$version:${BUILDKITE_CLEAN_CHECKOUT:-false}" in
+    latest:1|latest:t|latest:T|latest:TRUE|latest:true|latest:True) ;;
     *)
       if [[ -n "$metadata_cache" && -f "$metadata_cache" && ! -L "$metadata_cache" ]]; then
         modified="$(stat -c %Y "$metadata_cache" 2>/dev/null || stat -f %m "$metadata_cache" 2>/dev/null || echo 0)"
         now="$(date +%s)"
-        if (( modified <= now && now - modified < 3600 )) && cp -- "$metadata_cache" "$runtime_dir/release.json"; then
+        if { [[ "$version" != latest ]] || (( modified <= now && now - modified < 3600 )); } && cp -- "$metadata_cache" "$runtime_dir/release.json"; then
           selected="$(release_asset "$runtime_dir/release.json" 2>/dev/null)" || selected=''
         fi
       fi
@@ -254,11 +260,13 @@ if "$execution"; then
     [[ "$(sha256 "$runtime_dir/$event_path")" == "${event_digest#sha256:}" ]] || error "event checksum verification failed"
     (cd "$runtime_dir" && buildkite-agent artifact upload "$event_path")
   fi
-  hosted_tool_cache="$(jq -r '.run["hosted-tool-cache"] // false' <<< "$configuration")"
+  hosted_tool_cache="$(jq -r 'if has("hosted-tool-cache") then .["hosted-tool-cache"] else .run["hosted-tool-cache"] // false end' <<< "$configuration")"
   arguments=(run-job --plan "$runtime_dir/plan.json")
   [[ -z "$producer" ]] || arguments+=(--artifact-producer "$producer")
   [[ "$hosted_tool_cache" == false ]] || arguments+=(--hosted-tool-cache)
-  if [[ "$(jq -r '.run.namespace // false' <<< "$configuration")" == true ]]; then
+  # Namespace injects NSC_INSTANCE_ID into its workloads. Routing tags are not
+  # host identity. Retain the published option only for legacy descriptors.
+  if [[ -n "${NSC_INSTANCE_ID:-}" ]] || { jq -e '.run | has("runtime")' <<< "$configuration" >/dev/null && [[ "$(jq -r '.run.namespace // false' <<< "$configuration")" == true ]]; }; then
     arguments+=(--docker-build-load)
     if [[ "$platform" == linux/* ]]; then
       # Restore image tool paths that the agent service does not read via PAM.
@@ -304,5 +312,5 @@ fi
 if [[ -z "${MISE_DATA_DIR:-}" && -n "$cache" ]]; then
   export MISE_DATA_DIR="$cache"
 fi
-export BUILDKITE_GHA_PLUGIN_MULTIPLATFORM_RUN=1
+export BUILDKITE_GHA_PLUGIN_MULTIPLATFORM_RUN=1 BUILDKITE_GHA_PLUGIN_RUNTIME_SELECTION=1
 "$runtime_dir/buildkite-gha" plugin
