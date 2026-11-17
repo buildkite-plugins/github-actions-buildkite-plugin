@@ -9,7 +9,8 @@ configuration:
     - not:
         required: [run]
     - required: [run]
-      maxProperties: 1
+      propertyNames:
+        enum: [run, version, binary, hosted-tool-cache]
   not:
     anyOf:
       - required: [version, binary]
@@ -17,9 +18,9 @@ configuration:
       - required: [minimum-release-age]
   properties:
     run:
-      description: Execute an existing plan with pinned runtime bytes; no importer or release resolution.
+      description: Execute an existing plan using the shared version or binary selector.
       type: object
-      required: [plan, runtime]
+      required: [plan]
       additionalProperties: false
       properties:
         plan:
@@ -83,7 +84,10 @@ configuration:
         namespace:
           type: boolean
           default: false
-          description: Preserve native Namespace image PATH, hostname and Docker build behavior on Linux and macOS.
+          description: Legacy runtime-descriptor setup override. New jobs use the worker's NSC_INSTANCE_ID.
+    hosted-tool-cache:
+      type: boolean
+      description: Explicitly enable hosted tool-cache setup for execution jobs.
     version:
       type: string
       default: latest

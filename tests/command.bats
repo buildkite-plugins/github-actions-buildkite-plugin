@@ -11,7 +11,7 @@ setup() {
   export BUILDKITE_AGENT_ENDPOINT=https://agent.buildkite.com/v3
   export BUILDKITE_AGENT_ACCESS_TOKEN=fixture-job-token
   export BUILDKITE_JOB_ID=12345678-1234-1234-1234-123456789abc
-  unset BUILDKITE_CLEAN_CHECKOUT BUILDKITE_GIT_CLEAN_FLAGS
+  unset BUILDKITE_CLEAN_CHECKOUT BUILDKITE_GIT_CLEAN_FLAGS NSC_INSTANCE_ID
   export MOCK_OS=Linux MOCK_ARCH=x86_64
   mkdir -p "$FIXTURE/bin" "$TMPDIR"
   : > "$MOCK_LOG"
@@ -402,7 +402,7 @@ EOF
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$MOCK_LOG")" -eq 1 ]
 
-  touch -t 200001010000 "$metadata_cache"
+  printf 'not-json' > "$metadata_cache"
   export MOCK_FAIL_SUFFIX=/v0.107.1
   rm "$FIXTURE/arguments"
   : > "$MOCK_LOG"
@@ -728,6 +728,56 @@ EOF
   [[ "$(cat "$FIXTURE/arguments")" == "run-job --plan $TMPDIR/"*"/plan.json --hosted-tool-cache --docker-build-load" ]]
   [ "$(cat "$MOCK_LOG")" = https://example.com/runtime ]
   assert_clean
+}
+
+@test "run shares exact and latest acquisition with import and keeps exact caches indefinitely" {
+  export MOCK_OS=Darwin MOCK_ARCH=arm64
+  configuration="$(execution_configuration | jq -c 'del(.run.runtime)')"
+  for version in latest v0.107.1; do
+    export BUILDKITE_PLUGIN_CONFIGURATION="$(jq -c --arg version "$version" '.version=$version' <<< "$configuration")"
+    export BUILDKITE_GHA_CACHE_DIR="$BATS_TEST_TMPDIR/cache/$version"
+    : > "$MOCK_LOG"
+    run "$REPO/hooks/command"
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+    [ "$(wc -l < "$MOCK_LOG")" -eq 2 ]
+    [[ "$(cat "$FIXTURE/arguments")" == "run-job --plan "*"/plan.json" ]]
+    : > "$MOCK_LOG"
+    if [[ "$version" != latest ]]; then
+      touch -t 200001010000 "$BUILDKITE_GHA_CACHE_DIR/releases/tags/$version.json"
+      export BUILDKITE_CLEAN_CHECKOUT=true
+    fi
+    run "$REPO/hooks/command"
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+    [ ! -s "$MOCK_LOG" ]
+    assert_clean
+  done
+}
+
+@test "standalone run selects local binary map and Namespace setup comes from the worker" {
+  export MOCK_OS=Darwin MOCK_ARCH=arm64
+  configuration="$(execution_configuration | jq -c 'del(.run.runtime) | .binary={"linux/amd64":"https://example.com/linux", "linux/arm64":"https://example.com/arm", "darwin/arm64":"https://example.com/mac", "windows/amd64":"https://example.com/windows"}')"
+  for marker in '' native-instance; do
+    export NSC_INSTANCE_ID="$marker"
+    export BUILDKITE_PLUGIN_CONFIGURATION="$configuration"
+    : > "$MOCK_LOG"
+    run "$REPO/hooks/command"
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+    [ "$(cat "$MOCK_LOG")" = https://example.com/mac ]
+    [ "$(cat "$FIXTURE/configuration")" = "$configuration" ]
+    [[ "$(cat "$FIXTURE/arguments")" != *--hosted-tool-cache* ]]
+    if [[ -n "$marker" ]]; then
+      [[ "$(cat "$FIXTURE/arguments")" == *--docker-build-load* ]]
+    else
+      [[ "$(cat "$FIXTURE/arguments")" != *--docker-build-load* ]]
+    fi
+    assert_clean
+  done
+  unset NSC_INSTANCE_ID
+  export BUILDKITE_PLUGIN_CONFIGURATION="$(jq -c 'del(.binary)' <<< "$configuration")"
+  : > "$MOCK_LOG"
+  run "$REPO/hooks/command"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -Fx "$BUILDKITE_AGENT_ENDPOINT/jobs/$BUILDKITE_JOB_ID/github-actions/releases/latest" "$MOCK_LOG"
 }
 
 @test "inline events are digest-bound and published by the execution job" {
