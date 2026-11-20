@@ -30,7 +30,7 @@ jobs:
           echo 'PLATFORM_PROOF linux/amd64 value=41 token=present'
   arm:
     needs: linux
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     outputs:
       value: ${{ steps.probe.outputs.value }}
     steps:
