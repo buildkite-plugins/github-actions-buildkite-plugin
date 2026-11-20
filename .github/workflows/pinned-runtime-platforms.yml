@@ -51,7 +51,7 @@ jobs:
           echo 'PLATFORM_PROOF linux/arm64 value=42 token=present'
   mac:
     needs: arm
-    runs-on: macos-14
+    runs-on: macos-26
     outputs:
       value: ${{ steps.probe.outputs.value }}
     steps:
